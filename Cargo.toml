@@ -1,0 +1,9 @@
+[package]
+name = "git-tree"
+version = "0.1.0"
+authors = ["Christoph Rüßler <christoph.ruessler@mailbox.org>"]
+
+[dependencies]
+ansi_term = "0.10.1"
+clap = "2.26.2"
+git2 = "0.6.8"
