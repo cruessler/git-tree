@@ -24,6 +24,8 @@ Provided you have `cargo` installed, installation is as easy as
 
 ```
 cargo install https://github.com/cruessler/git-tree
+# or, if you are not using nightly as default
+rustup run nightly cargo install --git https://www.github.com/cruessler/git-tree 
 ```
 
 This will download the source code and compile the binary which can then be
