@@ -11,7 +11,7 @@ https://github.com/rust-lang/rust/issues/23121 and
 https://doc.rust-lang.org/1.8.0/book/slice-patterns.html.
 You can install Rust nightly with
 
-```
+```bash
 curl -s https://static.rust-lang.org/rustup.sh | sh -s -- --channel=nightly
 ```
 or, alternatively, update an existing installation with
