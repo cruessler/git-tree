@@ -1,4 +1,3 @@
-#![feature(advanced_slice_patterns, slice_patterns)]
 extern crate ansi_term;
 extern crate clap;
 extern crate git2;
@@ -119,39 +118,32 @@ impl Lines for Node {
 impl Lines for Tree {
     fn lines(&self) -> Vec<String> {
         let children = self.children.values().collect::<Vec<_>>();
+        let (rest, last) = children.as_slice().split_at(children.len() - 1);
 
-        match &children[..] {
-            &[ref rest.., ref last] => {
-                let mut lines = vec![self.name.clone()];
+        let mut lines = vec![self.name.clone()];
 
-                lines.extend(
-                    rest.iter()
-                        .flat_map(|&node| {
-                            // Every child’s first line gets prepended by "├── ".
-                            // All following lines get prepended by "│   ".
+        lines.extend(
+            rest.iter()
+                .flat_map(|&node| {
+                    // Every child’s first line gets prepended by "├── ".
+                    // All following lines get prepended by "│   ".
 
-                            self.prepend_first_and_rest(
-                                node.lines(),
-                                "├── ".into(),
-                                "│   ".into(),
-                            )
-                        })
-                        .collect::<Vec<_>>(),
-                );
+                    self.prepend_first_and_rest(node.lines(), "├── ".into(), "│   ".into())
+                })
+                .collect::<Vec<_>>(),
+        );
 
-                // The last child’s first line gets prepended by "└── ".
-                // All following lines get prepended by "    ".
-                lines.extend(self.prepend_first_and_rest(
-                    last.lines(),
-                    "└── ".into(),
-                    "    ".into(),
-                ));
-
-                lines
-            }
-
-            _ => vec![],
+        if let Some(&last) = last.get(0) {
+            // The last child’s first line gets prepended by "└── ".
+            // All following lines get prepended by "    ".
+            lines.extend(self.prepend_first_and_rest(
+                last.lines(),
+                "└── ".into(),
+                "    ".into(),
+            ));
         }
+
+        lines
     }
 }
 
