@@ -13,7 +13,7 @@ https://doc.rust-lang.org/1.8.0/book/slice-patterns.html.
 Provided you have `cargo` installed, installation is as easy as
 
 ```
-cargo install https://github.com/cruessler/git-tree
+cargo install --git https://github.com/cruessler/git-tree
 ```
 
 This will download the source code and compile the binary which can then be
