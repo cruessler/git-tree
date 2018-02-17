@@ -118,7 +118,13 @@ impl Lines for Node {
 impl Lines for Tree {
     fn lines(&self) -> Vec<String> {
         let children = self.children.values().collect::<Vec<_>>();
-        let (rest, last) = children.as_slice().split_at(children.len() - 1);
+
+        let split_at = match children.len() {
+            0 => 0,
+            len => len - 1,
+        };
+
+        let (rest, last) = children.as_slice().split_at(split_at);
 
         let mut lines = vec![self.name.clone()];
 
