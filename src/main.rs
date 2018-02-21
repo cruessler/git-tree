@@ -2,9 +2,9 @@ extern crate ansi_term;
 extern crate clap;
 extern crate git2;
 
-use ansi_term::Colour::{Blue, Fixed, Green, Red, White};
+use ansi_term::Colour::{Blue, Fixed, Green, Red, White, Yellow};
 use clap::{App, Arg};
-use git2::{Repository, Status, StatusEntry};
+use git2::{Branch, Repository, Status, StatusEntry};
 use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Component, Components, Path};
@@ -12,6 +12,7 @@ use std::path::{Component, Components, Path};
 #[derive(Debug)]
 enum Node {
     Tree(Tree),
+    Summary(Summary),
     Leaf(Leaf),
 }
 
@@ -22,9 +23,49 @@ struct Tree {
 }
 
 #[derive(Debug)]
+struct Summary {
+    name: String,
+    stats: DiffStat,
+}
+
+#[derive(Debug)]
 struct Leaf {
     name: String,
     status: Status,
+}
+
+#[derive(Debug)]
+struct DiffStat {
+    branch: String,
+    files_changed: usize,
+    insertions: usize,
+    deletions: usize,
+}
+
+impl DiffStat {
+    fn from(path: &str) -> Result<DiffStat, git2::Error> {
+        let repo = Repository::discover(path)?;
+
+        let head = repo.head()?;
+
+        let head_commit = repo.find_commit(head.target().unwrap())?;
+        let head_tree = head_commit.tree()?;
+
+        let diff = repo.diff_tree_to_workdir(Some(&head_tree), None)?;
+        let stats = diff.stats()?;
+
+        let branch = Branch::wrap(head);
+        let branch_name = branch.name()?.unwrap_or("<branch name not valid UTF-8>");
+
+        let diff_stat = DiffStat {
+            branch: branch_name.into(),
+            files_changed: stats.files_changed(),
+            insertions: stats.insertions(),
+            deletions: stats.deletions(),
+        };
+
+        Ok(diff_stat)
+    }
 }
 
 impl Tree {
@@ -114,6 +155,7 @@ impl Lines for Node {
     fn lines(&self) -> Vec<String> {
         match self {
             &Node::Tree(ref node) => node.lines(),
+            &Node::Summary(ref node) => node.lines(),
             &Node::Leaf(ref node) => node.lines(),
         }
     }
@@ -157,6 +199,20 @@ impl Lines for Tree {
     }
 }
 
+impl Lines for Summary {
+    fn lines(&self) -> Vec<String> {
+        vec![
+            format!(
+                "{} +{} -{} ({})",
+                self.name.as_str(),
+                Green.paint(format!("{}", self.stats.insertions)),
+                Red.paint(format!("{}", self.stats.deletions)),
+                Yellow.paint(format!("{}", self.stats.files_changed)),
+            ),
+        ]
+    }
+}
+
 // http://www.calmar.ws/vim/256-xterm-24bit-rgb-color-chart.html
 impl Lines for Leaf {
     fn lines(&self) -> Vec<String> {
@@ -195,6 +251,17 @@ impl Lines for Leaf {
 }
 
 impl fmt::Display for Tree {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for l in self.lines() {
+            f.write_str(&l)?;
+            f.write_str("\n")?;
+        }
+
+        Ok(())
+    }
+}
+
+impl fmt::Display for Summary {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for l in self.lines() {
             f.write_str(&l)?;
