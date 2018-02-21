@@ -38,16 +38,32 @@ impl Tree {
     }
 
     fn add_entry_at_path(&mut self, entry: &StatusEntry, path: &mut Components) {
+        let file_name = entry
+            .path()
+            .map(|path| Path::new(path))
+            .and_then(|path| path.file_name())
+            .and_then(|file_name| file_name.to_str())
+            .unwrap();
+
+        let new_node = Leaf {
+            name: file_name.into(),
+            status: entry.status(),
+        };
+
+        self.add_node_at_path(Node::Leaf(new_node), file_name, path);
+    }
+
+    fn add_node_at_path(&mut self, node: Node, name: &str, path: &mut Components) {
         match path.next() {
             Some(Component::Normal(ref dir)) => {
                 dir.to_str().map(|dir| {
-                    let node = self.children.entry(dir.into()).or_insert(Node::Tree(Tree {
+                    let new_node = self.children.entry(dir.into()).or_insert(Node::Tree(Tree {
                         name: dir.into(),
                         children: BTreeMap::new(),
                     }));
 
-                    if let &mut Node::Tree(ref mut node) = node {
-                        node.add_entry_at_path(entry, path)
+                    if let &mut Node::Tree(ref mut new_node) = new_node {
+                        new_node.add_node_at_path(node, name, path)
                     }
                 });
             }
@@ -55,19 +71,7 @@ impl Tree {
             Some(_) => unimplemented!(),
 
             _ => {
-                entry
-                    .path()
-                    .map(|path| Path::new(path))
-                    .and_then(|path| path.file_name())
-                    .and_then(|file_name| file_name.to_str())
-                    .map(|file_name| {
-                        let new_node = Leaf {
-                            name: file_name.into(),
-                            status: entry.status(),
-                        };
-
-                        self.children.insert(file_name.into(), Node::Leaf(new_node))
-                    });
+                self.children.insert(name.into(), node);
             }
         }
     }
