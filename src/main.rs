@@ -292,21 +292,36 @@ fn main() {
                 .long("all")
                 .help("Include ignored files"),
         )
+        .arg(Arg::with_name("summary").short("s").long("summary").help(
+            "Show only a summary containing the number of additions, deletions, \
+             and changed files",
+        ))
         .get_matches();
 
-    let repo = Repository::discover("./").expect("Could not open repository");
-    let statuses = repo.statuses(None).expect("Could not get statuses");
+    if matches.is_present("summary") {
+        let stats = DiffStat::from("./").unwrap();
 
-    let mut root = Tree {
-        name: ".".into(),
-        children: BTreeMap::new(),
-    };
+        let root = Summary {
+            name: ".".into(),
+            stats: stats,
+        };
 
-    for s in statuses.iter() {
-        if matches.is_present("all") || !s.status().contains(git2::STATUS_IGNORED) {
-            root.add_entry(&s);
+        println!("{}", root);
+    } else {
+        let repo = Repository::discover("./").expect("Could not open repository");
+        let statuses = repo.statuses(None).expect("Could not get statuses");
+
+        let mut root = Tree {
+            name: ".".into(),
+            children: BTreeMap::new(),
+        };
+
+        for s in statuses.iter() {
+            if matches.is_present("all") || !s.status().contains(git2::STATUS_IGNORED) {
+                root.add_entry(&s);
+            }
         }
-    }
 
-    println!("{}", root);
+        println!("{}", root);
+    }
 }
