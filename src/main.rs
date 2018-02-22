@@ -272,6 +272,27 @@ impl fmt::Display for Summary {
     }
 }
 
+struct Flags {
+    all: bool,
+}
+
+fn walk_repository(repo: &Repository, name: &str, flags: &Flags) -> Tree {
+    let statuses = repo.statuses(None).expect("Could not get statuses");
+
+    let mut root = Tree {
+        name: name.into(),
+        children: BTreeMap::new(),
+    };
+
+    for s in statuses.iter() {
+        if flags.all || !s.status().contains(git2::STATUS_IGNORED) {
+            root.add_entry(&s);
+        }
+    }
+
+    root
+}
+
 fn main() {
     let matches = App::new("git-tree")
         .version(env!("CARGO_PKG_VERSION"))
@@ -298,6 +319,10 @@ fn main() {
         ))
         .get_matches();
 
+    let flags = Flags {
+        all: matches.is_present("all"),
+    };
+
     if matches.is_present("summary") {
         let stats = DiffStat::from("./").unwrap();
 
@@ -308,19 +333,9 @@ fn main() {
 
         println!("{}", root);
     } else {
-        let repo = Repository::discover("./").expect("Could not open repository");
-        let statuses = repo.statuses(None).expect("Could not get statuses");
+        let repo = Repository::discover(".").expect("Could not open repository");
 
-        let mut root = Tree {
-            name: ".".into(),
-            children: BTreeMap::new(),
-        };
-
-        for s in statuses.iter() {
-            if matches.is_present("all") || !s.status().contains(git2::STATUS_IGNORED) {
-                root.add_entry(&s);
-            }
-        }
+        let root = walk_repository(&repo, ".", &flags);
 
         println!("{}", root);
     }
