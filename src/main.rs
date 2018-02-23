@@ -46,7 +46,7 @@ struct DiffStat {
 }
 
 impl DiffStat {
-    fn from(path: &str) -> Result<DiffStat, Error> {
+    fn from(path: &Path) -> Result<DiffStat, Error> {
         let repo = Repository::discover(path)?;
 
         let head = repo.head()?;
@@ -331,8 +331,10 @@ fn main() {
         all: matches.is_present("all"),
     };
 
+    let path = Path::new(".");
+
     if matches.is_present("summary") {
-        match DiffStat::from(".") {
+        match DiffStat::from(&path) {
             Ok(stats) => {
                 let root = Summary {
                     name: ".".into(),
@@ -344,8 +346,6 @@ fn main() {
             Err(err) => println!("{}", err),
         }
     } else {
-        let path = Path::new(".");
-
         match walk_repository(&path, ".", &flags) {
             Ok(root) => println!("{}", root),
             Err(err) => println!("{}", err),
