@@ -69,29 +69,10 @@ impl DiffStat {
 }
 
 impl Tree {
-    fn add_entry(&mut self, entry: &StatusEntry) {
-        entry
-            .path()
-            .and_then(|path| Path::new(path).parent())
-            .map(|parent| {
-                self.add_entry_at_path(entry, &mut parent.components());
-            });
-    }
+    fn add_leaf_at_path(&mut self, leaf: Leaf, path: &mut Components) {
+        let name = leaf.name.clone();
 
-    fn add_entry_at_path(&mut self, entry: &StatusEntry, path: &mut Components) {
-        let file_name = entry
-            .path()
-            .map(|path| Path::new(path))
-            .and_then(|path| path.file_name())
-            .and_then(|file_name| file_name.to_str())
-            .unwrap();
-
-        let new_node = Leaf {
-            name: file_name.into(),
-            status: entry.status(),
-        };
-
-        self.add_node_at_path(Node::Leaf(new_node), file_name, path);
+        self.add_node_at_path(Node::Leaf(leaf), name.as_str(), path);
     }
 
     fn add_node_at_path(&mut self, node: Node, name: &str, path: &mut Components) {
@@ -284,9 +265,26 @@ fn walk_repository(repo: &Repository, name: &str, flags: &Flags) -> Tree {
         children: BTreeMap::new(),
     };
 
-    for s in statuses.iter() {
-        if flags.all || !s.status().contains(git2::STATUS_IGNORED) {
-            root.add_entry(&s);
+    for entry in statuses.iter() {
+        if flags.all || !entry.status().contains(git2::STATUS_IGNORED) {
+            let file_name = entry
+                .path()
+                .map(|path| Path::new(path))
+                .and_then(|path| path.file_name())
+                .and_then(|file_name| file_name.to_str())
+                .unwrap();
+
+            let leaf = Leaf {
+                name: file_name.into(),
+                status: entry.status(),
+            };
+
+            entry
+                .path()
+                .and_then(|path| Path::new(path).parent())
+                .map(|parent| {
+                    root.add_leaf_at_path(leaf, &mut parent.components());
+                });
         }
     }
 
