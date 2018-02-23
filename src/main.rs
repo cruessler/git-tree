@@ -1,13 +1,16 @@
 extern crate ansi_term;
 extern crate clap;
+extern crate failure;
 extern crate git2;
 
 use ansi_term::Colour::{Blue, Fixed, Green, Red, White, Yellow};
 use clap::{App, Arg};
-use git2::{Branch, Repository, Status, StatusEntry};
+use failure::Error;
+use git2::{Branch, Repository, Status};
 use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Component, Components, Path};
+use std::str;
 
 #[derive(Debug)]
 enum Node {
@@ -43,19 +46,21 @@ struct DiffStat {
 }
 
 impl DiffStat {
-    fn from(path: &str) -> Result<DiffStat, git2::Error> {
+    fn from(path: &str) -> Result<DiffStat, Error> {
         let repo = Repository::discover(path)?;
 
         let head = repo.head()?;
+        let object_id = head.target()
+            .ok_or(git2::Error::from_str("HEAD is not a direct reference"))?;
 
-        let head_commit = repo.find_commit(head.target().unwrap())?;
+        let head_commit = repo.find_commit(object_id)?;
         let head_tree = head_commit.tree()?;
 
         let diff = repo.diff_tree_to_workdir(Some(&head_tree), None)?;
         let stats = diff.stats()?;
 
         let branch = Branch::wrap(head);
-        let branch_name = branch.name()?.unwrap_or("<branch name not valid UTF-8>");
+        let branch_name = str::from_utf8(branch.name_bytes()?)?;
 
         let diff_stat = DiffStat {
             branch: branch_name.into(),
@@ -257,8 +262,9 @@ struct Flags {
     all: bool,
 }
 
-fn walk_repository(repo: &Repository, name: &str, flags: &Flags) -> Tree {
-    let statuses = repo.statuses(None).expect("Could not get statuses");
+fn walk_repository(path: &Path, name: &str, flags: &Flags) -> Result<Tree, Error> {
+    let repo = Repository::discover(&path)?;
+    let statuses = repo.statuses(None)?;
 
     let mut root = Tree {
         name: name.into(),
@@ -272,7 +278,11 @@ fn walk_repository(repo: &Repository, name: &str, flags: &Flags) -> Tree {
                 .map(|path| Path::new(path))
                 .and_then(|path| path.file_name())
                 .and_then(|file_name| file_name.to_str())
-                .unwrap();
+                .ok_or_else(|| {
+                    let message =
+                        format!("{:?} cannot be resolved to a file name", entry.path_bytes());
+                    git2::Error::from_str(message.as_str())
+                })?;
 
             let leaf = Leaf {
                 name: file_name.into(),
@@ -288,7 +298,7 @@ fn walk_repository(repo: &Repository, name: &str, flags: &Flags) -> Tree {
         }
     }
 
-    root
+    Ok(root)
 }
 
 fn main() {
@@ -322,19 +332,23 @@ fn main() {
     };
 
     if matches.is_present("summary") {
-        let stats = DiffStat::from("./").unwrap();
+        match DiffStat::from(".") {
+            Ok(stats) => {
+                let root = Summary {
+                    name: ".".into(),
+                    stats: stats,
+                };
 
-        let root = Summary {
-            name: ".".into(),
-            stats: stats,
-        };
-
-        println!("{}", root);
+                println!("{}", root);
+            }
+            Err(err) => println!("{}", err),
+        }
     } else {
-        let repo = Repository::discover(".").expect("Could not open repository");
+        let path = Path::new(".");
 
-        let root = walk_repository(&repo, ".", &flags);
-
-        println!("{}", root);
+        match walk_repository(&path, ".", &flags) {
+            Ok(root) => println!("{}", root),
+            Err(err) => println!("{}", err),
+        }
     }
 }
