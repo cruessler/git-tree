@@ -9,6 +9,7 @@ use failure::Error;
 use git2::{Branch, Repository, Status};
 use std::collections::BTreeMap;
 use std::fmt;
+use std::fs::ReadDir;
 use std::path::{Component, Components, Path};
 use std::str;
 
@@ -46,12 +47,10 @@ struct DiffStat {
 }
 
 impl DiffStat {
-    fn from(path: &Path) -> Result<DiffStat, Error> {
-        let repo = Repository::discover(path)?;
-
+    fn from(repo: &Repository) -> Result<DiffStat, Error> {
         let head = repo.head()?;
         let object_id = head.target()
-            .ok_or(git2::Error::from_str("HEAD is not a direct reference"))?;
+            .ok_or(failure::err_msg("HEAD is not a direct reference"))?;
 
         let head_commit = repo.find_commit(object_id)?;
         let head_tree = head_commit.tree()?;
@@ -98,9 +97,13 @@ impl Tree {
             Some(_) => unimplemented!(),
 
             _ => {
-                self.children.insert(name.into(), node);
+                self.add_node(node, name);
             }
         }
+    }
+
+    fn add_node(&mut self, node: Node, name: &str) {
+        self.children.insert(name.into(), node);
     }
 }
 
@@ -189,8 +192,9 @@ impl Lines for Summary {
     fn lines(&self) -> Vec<String> {
         vec![
             format!(
-                "{} +{} -{} ({})",
+                "{} {} +{} -{} ({})",
                 self.name.as_str(),
+                Fixed(244).paint(format!("[{}]", self.stats.branch.as_str())),
                 Green.paint(format!("{}", self.stats.insertions)),
                 Red.paint(format!("{}", self.stats.deletions)),
                 Yellow.paint(format!("{}", self.stats.files_changed)),
@@ -236,7 +240,7 @@ impl Lines for Leaf {
     }
 }
 
-impl fmt::Display for Tree {
+impl fmt::Display for Node {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for l in self.lines() {
             f.write_str(&l)?;
@@ -247,23 +251,13 @@ impl fmt::Display for Tree {
     }
 }
 
-impl fmt::Display for Summary {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for l in self.lines() {
-            f.write_str(&l)?;
-            f.write_str("\n")?;
-        }
-
-        Ok(())
-    }
-}
-
-struct Flags {
+struct Flags<'a> {
     all: bool,
+    depth: Option<&'a str>,
+    summary: bool,
 }
 
-fn walk_repository(path: &Path, name: &str, flags: &Flags) -> Result<Tree, Error> {
-    let repo = Repository::discover(&path)?;
+fn walk_repository(repo: &Repository, name: &str, flags: &Flags) -> Result<Node, Error> {
     let statuses = repo.statuses(None)?;
 
     let mut root = Tree {
@@ -273,16 +267,12 @@ fn walk_repository(path: &Path, name: &str, flags: &Flags) -> Result<Tree, Error
 
     for entry in statuses.iter() {
         if flags.all || !entry.status().contains(git2::STATUS_IGNORED) {
-            let file_name = entry
-                .path()
-                .map(|path| Path::new(path))
-                .and_then(|path| path.file_name())
-                .and_then(|file_name| file_name.to_str())
-                .ok_or_else(|| {
-                    let message =
-                        format!("{:?} cannot be resolved to a file name", entry.path_bytes());
-                    git2::Error::from_str(message.as_str())
-                })?;
+            let path = Path::new(entry.path().ok_or(failure::err_msg(format!(
+                "{:?} cannot be resolved to a path",
+                entry.path()
+            )))?);
+
+            let file_name = file_name(&path)?;
 
             let leaf = Leaf {
                 name: file_name.into(),
@@ -298,7 +288,97 @@ fn walk_repository(path: &Path, name: &str, flags: &Flags) -> Result<Tree, Error
         }
     }
 
-    Ok(root)
+    Ok(Node::Tree(root))
+}
+
+fn file_name(path: &Path) -> Result<&str, Error> {
+    let file_name = match path.file_name() {
+        Some(file_name) => file_name.to_str(),
+        None => path.to_str(),
+    };
+
+    file_name.ok_or(failure::err_msg(format!(
+        "{:?} cannot be resolved to a filename",
+        path
+    )))
+}
+
+fn walk_summary(repo: &Repository, name: &str) -> Result<Node, Error> {
+    let stats = DiffStat::from(repo)?;
+
+    let summary = Summary {
+        name: name.into(),
+        stats: stats,
+    };
+
+    Ok(Node::Summary(summary))
+}
+
+fn walk_directory(path: &Path, iter: ReadDir, depth: usize, flags: &Flags) -> Result<Node, Error> {
+    let mut tree = Tree {
+        name: String::from(file_name(path)?),
+        children: BTreeMap::new(),
+    };
+
+    for entry in iter {
+        if let Ok(entry) = entry {
+            if let Ok(Some(child)) = walk_path(&entry.path(), depth - 1, &flags) {
+                tree.add_node(
+                    child,
+                    entry.file_name().to_str().ok_or(failure::err_msg(format!(
+                        "{:?} cannot be resolved to a filename",
+                        entry.file_name()
+                    )))?,
+                );
+            }
+        }
+    }
+
+    Ok(Node::Tree(tree))
+}
+
+fn walk_path(path: &Path, depth: usize, flags: &Flags) -> Result<Option<Node>, Error> {
+    match Repository::open(&path) {
+        Ok(repo) => {
+            let node = if flags.summary {
+                walk_summary(&repo, file_name(path)?)
+            } else {
+                walk_repository(&repo, file_name(path)?, &flags)
+            };
+
+            node.map(|node| Some(node))
+        }
+
+        _ => {
+            if path.is_dir() && depth > 0 {
+                let iter = path.read_dir()?;
+
+                walk_directory(&path, iter, depth, &flags).and_then(|node| Ok(Some(node)))
+            } else {
+                Ok(None)
+            }
+        }
+    }
+}
+
+fn fallback(path: &Path, flags: &Flags) -> Result<Option<Node>, Error> {
+    let repo = Repository::discover(&path)?;
+
+    let node = walk_repository(&repo, file_name(path)?, &flags);
+
+    node.map(|node| Some(node))
+}
+
+fn run(path: &Path, flags: &Flags) -> Result<Option<Node>, Error> {
+    let depth = match flags.depth {
+        Some(depth) => depth.parse::<usize>()?,
+        None => 0,
+    };
+
+    match walk_path(&path, depth, &flags) {
+        Ok(None) => fallback(&path, &flags),
+        result => result,
+    }
 }
 
 fn main() {
@@ -321,6 +401,12 @@ fn main() {
                 .long("all")
                 .help("Include ignored files"),
         )
+        .arg(
+            Arg::with_name("depth")
+                .long("depth")
+                .takes_value(true)
+                .help("Recursively search for repositories up to <depth> levels deep"),
+        )
         .arg(Arg::with_name("summary").short("s").long("summary").help(
             "Show only a summary containing the number of additions, deletions, \
              and changed files",
@@ -329,26 +415,15 @@ fn main() {
 
     let flags = Flags {
         all: matches.is_present("all"),
+        depth: matches.value_of("depth"),
+        summary: matches.is_present("summary"),
     };
 
     let path = Path::new(".");
 
-    if matches.is_present("summary") {
-        match DiffStat::from(&path) {
-            Ok(stats) => {
-                let root = Summary {
-                    name: ".".into(),
-                    stats: stats,
-                };
-
-                println!("{}", root);
-            }
-            Err(err) => println!("{}", err),
-        }
-    } else {
-        match walk_repository(&path, ".", &flags) {
-            Ok(root) => println!("{}", root),
-            Err(err) => println!("{}", err),
-        }
+    match run(&path, &flags) {
+        Ok(Some(root)) => println!("{}", root),
+        Ok(_) => println!("no git repository found at {:?}", path),
+        Err(err) => println!("{}", err),
     }
 }
