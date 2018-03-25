@@ -8,6 +8,7 @@ use clap::{App, Arg};
 use failure::Error;
 use git2::{Branch, Repository, Status};
 use std::collections::BTreeMap;
+use std::ffi::{OsStr, OsString};
 use std::fmt;
 use std::fs::ReadDir;
 use std::path::{Component, Components, Path};
@@ -22,25 +23,25 @@ enum Node {
 
 #[derive(Debug)]
 struct Tree {
-    name: String,
-    children: BTreeMap<String, Node>,
+    name: OsString,
+    children: BTreeMap<OsString, Node>,
 }
 
 #[derive(Debug)]
 struct Summary {
-    name: String,
+    name: OsString,
     stats: DiffStat,
 }
 
 #[derive(Debug)]
 struct Leaf {
-    name: String,
+    name: OsString,
     status: Status,
 }
 
 #[derive(Debug)]
 struct DiffStat {
-    branch: String,
+    branch: OsString,
     files_changed: usize,
     insertions: usize,
     deletions: usize,
@@ -76,10 +77,10 @@ impl Tree {
     fn add_leaf_at_path(&mut self, leaf: Leaf, path: &mut Components) {
         let name = leaf.name.clone();
 
-        self.add_node_at_path(Node::Leaf(leaf), name.as_str(), path);
+        self.add_node_at_path(Node::Leaf(leaf), name, path);
     }
 
-    fn add_node_at_path(&mut self, node: Node, name: &str, path: &mut Components) {
+    fn add_node_at_path(&mut self, node: Node, name: OsString, path: &mut Components) {
         match path.next() {
             Some(Component::Normal(ref dir)) => {
                 dir.to_str().map(|dir| {
@@ -102,20 +103,20 @@ impl Tree {
         }
     }
 
-    fn add_node(&mut self, node: Node, name: &str) {
-        self.children.insert(name.into(), node);
+    fn add_node(&mut self, node: Node, name: OsString) {
+        self.children.insert(name, node);
     }
 }
 
 trait Lines {
-    fn lines(&self) -> Vec<String>;
+    fn lines(&self) -> Vec<OsString>;
 
-    fn prepend(&self, lines: Vec<String>, with: String) -> Vec<String> {
+    fn prepend(&self, lines: Vec<OsString>, with: OsString) -> Vec<OsString> {
         lines
             .into_iter()
             .map(|line| {
                 let mut new_line = with.clone();
-                new_line.push_str(&line);
+                new_line.push(&line);
                 new_line
             })
             .collect()
@@ -123,14 +124,14 @@ trait Lines {
 
     fn prepend_first_and_rest(
         &self,
-        mut lines: Vec<String>,
-        first_with: String,
-        rest_with: String,
-    ) -> Vec<String> {
+        mut lines: Vec<OsString>,
+        first_with: OsString,
+        rest_with: OsString,
+    ) -> Vec<OsString> {
         let (first, rest) = lines.split_at_mut(1);
 
         let mut first_line = first_with.clone();
-        first_line.push_str(&first[0]);
+        first_line.push(&first[0]);
 
         let mut lines = vec![first_line];
 
@@ -141,7 +142,7 @@ trait Lines {
 }
 
 impl Lines for Node {
-    fn lines(&self) -> Vec<String> {
+    fn lines(&self) -> Vec<OsString> {
         match self {
             &Node::Tree(ref node) => node.lines(),
             &Node::Summary(ref node) => node.lines(),
@@ -151,7 +152,7 @@ impl Lines for Node {
 }
 
 impl Lines for Tree {
-    fn lines(&self) -> Vec<String> {
+    fn lines(&self) -> Vec<OsString> {
         let children = self.children.values().collect::<Vec<_>>();
 
         let split_at = match children.len() {
@@ -168,7 +169,6 @@ impl Lines for Tree {
                 .flat_map(|&node| {
                     // Every child’s first line gets prepended by "├── ".
                     // All following lines get prepended by "│   ".
-
                     self.prepend_first_and_rest(node.lines(), "├── ".into(), "│   ".into())
                 })
                 .collect::<Vec<_>>(),
@@ -189,23 +189,26 @@ impl Lines for Tree {
 }
 
 impl Lines for Summary {
-    fn lines(&self) -> Vec<String> {
+    fn lines(&self) -> Vec<OsString> {
         vec![
             format!(
                 "{} {} +{} -{} ({})",
-                self.name.as_str(),
-                Fixed(244).paint(format!("[{}]", self.stats.branch.as_str())),
+                self.name.as_os_str().to_string_lossy(),
+                Fixed(244).paint(format!(
+                    "[{}]",
+                    self.stats.branch.as_os_str().to_string_lossy()
+                )),
                 Green.paint(format!("{}", self.stats.insertions)),
                 Red.paint(format!("{}", self.stats.deletions)),
                 Yellow.paint(format!("{}", self.stats.files_changed)),
-            ),
+            ).into(),
         ]
     }
 }
 
 // http://www.calmar.ws/vim/256-xterm-24bit-rgb-color-chart.html
 impl Lines for Leaf {
-    fn lines(&self) -> Vec<String> {
+    fn lines(&self) -> Vec<OsString> {
         let style = match self.status {
             s if s.contains(git2::STATUS_WT_MODIFIED) => Red.normal(),
             s if s.contains(git2::STATUS_INDEX_MODIFIED) => Red.bold(),
@@ -234,8 +237,8 @@ impl Lines for Leaf {
                 "{}{} {}",
                 gray.paint(modifier_index),
                 gray.paint(modifier_worktree),
-                style.paint(self.name.as_str())
-            ),
+                style.paint(format!("{}", self.name.as_os_str().to_string_lossy()))
+            ).into(),
         ]
     }
 }
@@ -243,8 +246,7 @@ impl Lines for Leaf {
 impl fmt::Display for Node {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for l in self.lines() {
-            f.write_str(&l)?;
-            f.write_str("\n")?;
+            write!(f, "{}\n", l.as_os_str().to_string_lossy())?;
         }
 
         Ok(())
@@ -257,7 +259,7 @@ struct Flags<'a> {
     summary: bool,
 }
 
-fn walk_repository(repo: &Repository, name: &str, flags: &Flags) -> Result<Node, Error> {
+fn walk_repository(repo: &Repository, name: &OsStr, flags: &Flags) -> Result<Node, Error> {
     let statuses = repo.statuses(None)?;
 
     let mut root = Tree {
@@ -272,7 +274,7 @@ fn walk_repository(repo: &Repository, name: &str, flags: &Flags) -> Result<Node,
                 entry.path()
             )))?);
 
-            let file_name = file_name(&path)?;
+            let file_name = file_name(&path);
 
             let leaf = Leaf {
                 name: file_name.into(),
@@ -291,19 +293,11 @@ fn walk_repository(repo: &Repository, name: &str, flags: &Flags) -> Result<Node,
     Ok(Node::Tree(root))
 }
 
-fn file_name(path: &Path) -> Result<&str, Error> {
-    let file_name = match path.file_name() {
-        Some(file_name) => file_name.to_str(),
-        None => path.to_str(),
-    };
-
-    file_name.ok_or(failure::err_msg(format!(
-        "{:?} cannot be resolved to a filename",
-        path
-    )))
+fn file_name(path: &Path) -> &OsStr {
+    path.file_name().unwrap_or_else(|| path.as_os_str())
 }
 
-fn walk_summary(repo: &Repository, name: &str) -> Result<Node, Error> {
+fn walk_summary(repo: &Repository, name: &OsStr) -> Result<Node, Error> {
     let stats = DiffStat::from(repo)?;
 
     let summary = Summary {
@@ -316,20 +310,14 @@ fn walk_summary(repo: &Repository, name: &str) -> Result<Node, Error> {
 
 fn walk_directory(path: &Path, iter: ReadDir, depth: usize, flags: &Flags) -> Result<Node, Error> {
     let mut tree = Tree {
-        name: String::from(file_name(path)?),
+        name: file_name(path).into(),
         children: BTreeMap::new(),
     };
 
     for entry in iter {
         if let Ok(entry) = entry {
             if let Ok(Some(child)) = walk_path(&entry.path(), depth - 1, &flags) {
-                tree.add_node(
-                    child,
-                    entry.file_name().to_str().ok_or(failure::err_msg(format!(
-                        "{:?} cannot be resolved to a filename",
-                        entry.file_name()
-                    )))?,
-                );
+                tree.add_node(child, entry.file_name())
             }
         }
     }
@@ -341,9 +329,9 @@ fn walk_path(path: &Path, depth: usize, flags: &Flags) -> Result<Option<Node>, E
     match Repository::open(&path) {
         Ok(repo) => {
             let node = if flags.summary {
-                walk_summary(&repo, file_name(path)?)
+                walk_summary(&repo, file_name(path))
             } else {
-                walk_repository(&repo, file_name(path)?, &flags)
+                walk_repository(&repo, file_name(path), &flags)
             };
 
             node.map(|node| Some(node))
@@ -364,7 +352,7 @@ fn walk_path(path: &Path, depth: usize, flags: &Flags) -> Result<Option<Node>, E
 fn fallback(path: &Path, flags: &Flags) -> Result<Option<Node>, Error> {
     let repo = Repository::discover(&path)?;
 
-    let node = walk_repository(&repo, file_name(path)?, &flags);
+    let node = walk_repository(&repo, file_name(path), &flags);
 
     node.map(|node| Some(node))
 }
