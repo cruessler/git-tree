@@ -372,19 +372,7 @@ fn fallback(path: &Path, flags: &Flags) -> Result<Option<Node>, Error> {
     node.map(|node| Some(node))
 }
 
-fn run(path: &Path, flags: &Flags) -> Result<Option<Node>, Error> {
-    let depth = match flags.depth {
-        Some(depth) => depth.parse::<usize>()?,
-        None => 0,
-    };
-
-    match walk_path(&path, depth, &flags) {
-        Ok(None) => fallback(&path, &flags),
-        result => result,
-    }
-}
-
-fn main() {
+fn main() -> Result<(), Error> {
     let matches = App::new("git-tree")
         .version(env!("CARGO_PKG_VERSION"))
         .author("Christoph Rüßler <christoph.ruessler@mailbox.org>")
@@ -424,9 +412,20 @@ fn main() {
 
     let path = Path::new(".");
 
-    match run(&path, &flags) {
-        Ok(Some(root)) => println!("{}", root),
-        Ok(_) => println!("no git repository found at {:?}", path),
-        Err(err) => println!("{}", err),
+    let depth = match flags.depth {
+        Some(depth) => depth.parse::<usize>()?,
+        None => 0,
+    };
+
+    let node = match walk_path(&path, depth, &flags)? {
+        node @ Some(_) => node,
+        None => fallback(&path, &flags)?,
+    };
+
+    match node {
+        Some(root) => println!("{}", root),
+        _ => println!("no git repository found at {:?}", path),
     }
+
+    Ok(())
 }
