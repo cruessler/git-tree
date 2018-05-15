@@ -260,6 +260,14 @@ struct Flags<'a> {
 }
 
 fn walk_repository(repo: &Repository, name: &OsStr, flags: &Flags) -> Result<Node, Error> {
+    if flags.summary {
+        walk_summary(&repo, name)
+    } else {
+        walk_entries(&repo, name, &flags)
+    }
+}
+
+fn walk_entries(repo: &Repository, name: &OsStr, flags: &Flags) -> Result<Node, Error> {
     let statuses = repo.statuses(None)?;
 
     let mut root = Tree {
@@ -314,38 +322,45 @@ fn walk_directory(path: &Path, iter: ReadDir, depth: usize, flags: &Flags) -> Re
         children: BTreeMap::new(),
     };
 
-    for entry in iter {
-        if let Ok(entry) = entry {
-            if let Ok(Some(child)) = walk_path(&entry.path(), depth - 1, &flags) {
-                tree.add_node(child, entry.file_name())
-            }
-        }
+    let directories = iter.filter_map(|e| e.ok()).collect::<Vec<_>>();
+
+    let new_entries = directories
+        .iter()
+        .filter_map(|ref entry| {
+            walk_path(&entry.path(), depth - 1, &flags)
+                .ok()
+                .and_then(|child| child.map(|child| (child, entry.file_name())))
+        })
+        .collect::<Vec<(Node, OsString)>>();
+
+    for (node, file_name) in new_entries {
+        tree.add_node(node, file_name)
     }
 
     Ok(Node::Tree(tree))
 }
 
 fn walk_path(path: &Path, depth: usize, flags: &Flags) -> Result<Option<Node>, Error> {
-    match Repository::open(&path) {
-        Ok(repo) => {
-            let node = if flags.summary {
-                walk_summary(&repo, file_name(path))
-            } else {
-                walk_repository(&repo, file_name(path), &flags)
-            };
+    if path.is_dir() {
+        match Repository::open(&path) {
+            Ok(repo) => {
+                let node = walk_repository(&repo, file_name(path), &flags)?;
 
-            node.map(|node| Some(node))
-        }
+                Ok(Some(node))
+            }
 
-        _ => {
-            if path.is_dir() && depth > 0 {
-                let iter = path.read_dir()?;
+            _ => {
+                if depth > 0 {
+                    let node = walk_directory(&path, path.read_dir()?, depth, &flags)?;
 
-                walk_directory(&path, iter, depth, &flags).and_then(|node| Ok(Some(node)))
-            } else {
-                Ok(None)
+                    Ok(Some(node))
+                } else {
+                    Ok(None)
+                }
             }
         }
+    } else {
+        Ok(None)
     }
 }
 
