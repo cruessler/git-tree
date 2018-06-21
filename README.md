@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.org/cruessler/git-tree.svg?branch=master)](https://travis-ci.org/cruessler/git-tree)
+
 # git-tree
 
 git-tree is a small command line utility for showing the status of untracked
