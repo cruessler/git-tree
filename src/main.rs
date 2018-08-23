@@ -372,7 +372,7 @@ fn fallback(path: &Path, flags: &Flags) -> Result<Option<Node>, Error> {
     node.map(|node| Some(node))
 }
 
-fn main() -> Result<(), Error> {
+fn run() -> Result<(), Error> {
     let matches = App::new("git-tree")
         .version(env!("CARGO_PKG_VERSION"))
         .author("Christoph Rüßler <christoph.ruessler@mailbox.org>")
@@ -428,4 +428,10 @@ fn main() -> Result<(), Error> {
     }
 
     Ok(())
+}
+
+fn main() {
+    if let Err(err) = run() {
+        println!("{}", err);
+    }
 }
