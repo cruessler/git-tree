@@ -2,6 +2,8 @@
 
 # git-tree
 
+![git-tree](git-tree.png)
+
 git-tree is a small command line utility for showing the status of untracked
 and modified files in a git repository as a tree.
 
