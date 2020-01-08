@@ -50,7 +50,8 @@ struct DiffStat {
 impl DiffStat {
     fn from(repo: &Repository) -> Result<DiffStat, Error> {
         let head = repo.head()?;
-        let object_id = head.target()
+        let object_id = head
+            .target()
             .ok_or(failure::err_msg("HEAD is not a direct reference"))?;
 
         let head_commit = repo.find_commit(object_id)?;
@@ -177,11 +178,7 @@ impl Lines for Tree {
         if let Some(&last) = last.get(0) {
             // The last child’s first line gets prepended by "└── ".
             // All following lines get prepended by "    ".
-            lines.extend(self.prepend_first_and_rest(
-                last.lines(),
-                "└── ".into(),
-                "    ".into(),
-            ));
+            lines.extend(self.prepend_first_and_rest(last.lines(), "└── ".into(), "    ".into()));
         }
 
         lines
@@ -190,19 +187,18 @@ impl Lines for Tree {
 
 impl Lines for Summary {
     fn lines(&self) -> Vec<OsString> {
-        vec![
-            format!(
-                "{} {} +{} -{} ({})",
-                self.name.as_os_str().to_string_lossy(),
-                Fixed(244).paint(format!(
-                    "[{}]",
-                    self.stats.branch.as_os_str().to_string_lossy()
-                )),
-                Green.paint(format!("{}", self.stats.insertions)),
-                Red.paint(format!("{}", self.stats.deletions)),
-                Yellow.paint(format!("{}", self.stats.files_changed)),
-            ).into(),
-        ]
+        vec![format!(
+            "{} {} +{} -{} ({})",
+            self.name.as_os_str().to_string_lossy(),
+            Fixed(244).paint(format!(
+                "[{}]",
+                self.stats.branch.as_os_str().to_string_lossy()
+            )),
+            Green.paint(format!("{}", self.stats.insertions)),
+            Red.paint(format!("{}", self.stats.deletions)),
+            Yellow.paint(format!("{}", self.stats.files_changed)),
+        )
+        .into()]
     }
 }
 
@@ -232,14 +228,13 @@ impl Lines for Leaf {
 
         let gray = Fixed(244).normal();
 
-        vec![
-            format!(
-                "{}{} {}",
-                gray.paint(modifier_index),
-                gray.paint(modifier_worktree),
-                style.paint(format!("{}", self.name.as_os_str().to_string_lossy()))
-            ).into(),
-        ]
+        vec![format!(
+            "{}{} {}",
+            gray.paint(modifier_index),
+            gray.paint(modifier_worktree),
+            style.paint(format!("{}", self.name.as_os_str().to_string_lossy()))
+        )
+        .into()]
     }
 }
 
