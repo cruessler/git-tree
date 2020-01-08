@@ -210,23 +210,23 @@ impl Lines for Summary {
 impl Lines for Leaf {
     fn lines(&self) -> Vec<OsString> {
         let style = match self.status {
-            s if s.contains(git2::STATUS_WT_MODIFIED) => Red.normal(),
-            s if s.contains(git2::STATUS_INDEX_MODIFIED) => Red.bold(),
-            s if s.contains(git2::STATUS_WT_NEW) => Green.normal(),
-            s if s.contains(git2::STATUS_INDEX_NEW) => Green.bold(),
-            s if s.contains(git2::STATUS_IGNORED) => Blue.normal(),
+            s if s.contains(git2::Status::WT_MODIFIED) => Red.normal(),
+            s if s.contains(git2::Status::INDEX_MODIFIED) => Red.bold(),
+            s if s.contains(git2::Status::WT_NEW) => Green.normal(),
+            s if s.contains(git2::Status::INDEX_NEW) => Green.bold(),
+            s if s.contains(git2::Status::IGNORED) => Blue.normal(),
             _ => White.normal(),
         };
 
         let modifier_index = match self.status {
-            s if s.contains(git2::STATUS_INDEX_MODIFIED) => "M",
-            s if s.contains(git2::STATUS_INDEX_NEW) => "N",
+            s if s.contains(git2::Status::INDEX_MODIFIED) => "M",
+            s if s.contains(git2::Status::INDEX_NEW) => "N",
             _ => "-",
         };
 
         let modifier_worktree = match self.status {
-            s if s.contains(git2::STATUS_WT_MODIFIED) => "M",
-            s if s.contains(git2::STATUS_WT_NEW) => "N",
+            s if s.contains(git2::Status::WT_MODIFIED) => "M",
+            s if s.contains(git2::Status::WT_NEW) => "N",
             _ => "-",
         };
 
@@ -276,7 +276,7 @@ fn walk_entries(repo: &Repository, name: &OsStr, flags: &Flags) -> Result<Node, 
     };
 
     for entry in statuses.iter() {
-        if flags.all || !entry.status().contains(git2::STATUS_IGNORED) {
+        if flags.all || !entry.status().contains(git2::Status::IGNORED) {
             let path = Path::new(entry.path().ok_or(failure::err_msg(format!(
                 "{:?} cannot be resolved to a path",
                 entry.path()
