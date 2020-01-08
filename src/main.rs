@@ -1,7 +1,5 @@
-extern crate ansi_term;
-extern crate clap;
-extern crate failure;
-extern crate git2;
+use failure;
+use git2;
 
 use ansi_term::Colour::{Blue, Fixed, Green, Red, White, Yellow};
 use clap::{App, Arg};
@@ -75,13 +73,13 @@ impl DiffStat {
 }
 
 impl Tree {
-    fn add_leaf_at_path(&mut self, leaf: Leaf, path: &mut Components) {
+    fn add_leaf_at_path(&mut self, leaf: Leaf, path: &mut Components<'_>) {
         let name = leaf.name.clone();
 
         self.add_node_at_path(Node::Leaf(leaf), name, path);
     }
 
-    fn add_node_at_path(&mut self, node: Node, name: OsString, path: &mut Components) {
+    fn add_node_at_path(&mut self, node: Node, name: OsString, path: &mut Components<'_>) {
         match path.next() {
             Some(Component::Normal(ref dir)) => {
                 dir.to_str().map(|dir| {
@@ -239,7 +237,7 @@ impl Lines for Leaf {
 }
 
 impl fmt::Display for Node {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for l in self.lines() {
             write!(f, "{}\n", l.as_os_str().to_string_lossy())?;
         }
@@ -254,7 +252,7 @@ struct Flags<'a> {
     summary: bool,
 }
 
-fn walk_repository(repo: &Repository, name: &OsStr, flags: &Flags) -> Result<Node, Error> {
+fn walk_repository(repo: &Repository, name: &OsStr, flags: &Flags<'_>) -> Result<Node, Error> {
     if flags.summary {
         walk_summary(&repo, name)
     } else {
@@ -262,7 +260,7 @@ fn walk_repository(repo: &Repository, name: &OsStr, flags: &Flags) -> Result<Nod
     }
 }
 
-fn walk_entries(repo: &Repository, name: &OsStr, flags: &Flags) -> Result<Node, Error> {
+fn walk_entries(repo: &Repository, name: &OsStr, flags: &Flags<'_>) -> Result<Node, Error> {
     let statuses = repo.statuses(None)?;
 
     let mut root = Tree {
@@ -311,7 +309,12 @@ fn walk_summary(repo: &Repository, name: &OsStr) -> Result<Node, Error> {
     Ok(Node::Summary(summary))
 }
 
-fn walk_directory(path: &Path, iter: ReadDir, depth: usize, flags: &Flags) -> Result<Node, Error> {
+fn walk_directory(
+    path: &Path,
+    iter: ReadDir,
+    depth: usize,
+    flags: &Flags<'_>,
+) -> Result<Node, Error> {
     let mut tree = Tree {
         name: file_name(path).into(),
         children: BTreeMap::new(),
@@ -335,7 +338,7 @@ fn walk_directory(path: &Path, iter: ReadDir, depth: usize, flags: &Flags) -> Re
     Ok(Node::Tree(tree))
 }
 
-fn walk_path(path: &Path, depth: usize, flags: &Flags) -> Result<Option<Node>, Error> {
+fn walk_path(path: &Path, depth: usize, flags: &Flags<'_>) -> Result<Option<Node>, Error> {
     if path.is_dir() {
         match Repository::open(&path) {
             Ok(repo) => {
@@ -359,7 +362,7 @@ fn walk_path(path: &Path, depth: usize, flags: &Flags) -> Result<Option<Node>, E
     }
 }
 
-fn fallback(path: &Path, flags: &Flags) -> Result<Option<Node>, Error> {
+fn fallback(path: &Path, flags: &Flags<'_>) -> Result<Option<Node>, Error> {
     let repo = Repository::discover(&path)?;
 
     let node = walk_repository(&repo, file_name(path), &flags);
