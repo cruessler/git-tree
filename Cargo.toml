@@ -5,6 +5,6 @@ authors = ["Christoph Rüßler <christoph.ruessler@mailbox.org>"]
 
 [dependencies]
 ansi_term = "0.12.1"
-clap = "2.26.2"
+clap = "2.33.0"
 failure = "0.1.1"
 git2 = "0.11.0"
