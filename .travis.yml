@@ -5,6 +5,17 @@ before_script:
 - rustup component add rustfmt
 
 script:
-- cargo build
+- cargo build --release
 - cargo test
 - cargo fmt -- --check
+
+deploy:
+  provider: releases
+  api_key:
+    secure: O3rME/BLUo2CbdKZ5xHFjCGdXrjBSSyeuRf9Gl2QD1fwNuIdcDIWPPFok1M3K/4U+upptx/TtLlhEbqPHq/X/oXlGaseODrIjW+VX8Hi1RIe9HRUHp1mqEn565C8+Z+YvwJFL0/PRX4C7ry5z14ZT6m4G7U8PPI6P+Kgalqvkq1UYImyx144vqPpVDYjWAAvIgI2XCqTaF8LPiQtE8eE6hTppkYbLuCLeBsiiXR8yxLlEiE1ESQ+3OxPecfXMiqwCI3bby4HPqsrtWhTdOl3cHGwxq5t2Gk0fN26TSN7GMbpBDgE8jbfpHRpfry+vKAWL7i69fKIc+SNWVDzGXh8IGR2A36jTeL3m+McSXth+SPnGCLDf5C3wVYRsI8sI6eIWeGoN/f62Efh3dd8pa5lEkQJ4HF+MhfasJKg2Mi9zDHSbY7YCErGpuQEYxtJoqzKTfjdnfv/g4fBzjVLG3mryfygUKKo60Wtd7zNQ6tCKsrA0GxwHSkQ0frSA7PHcy2UVmCD/XCkBq2gSgOKqs6VZ6u3QVlVXePtBPCjOQnaPi5Alu3H3TyYLro4yU8sGWCMi9ZMLN8SBtIXv6prcyqEwhhYmTPWOVk5P59WcHsxkP9uGSarLKQRKPaX4URUe3APWzJ+l1Y9vKLQDk+8mlhF3o69ilwDsbxzwOHTNll7Irw=
+  file: target/release/git-tree
+  on:
+    repo: cruessler/git-tree
+    branch: setup-releases
+  skip_cleanup: true
+  draft: true
