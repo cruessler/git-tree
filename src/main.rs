@@ -3,7 +3,7 @@ use git2;
 
 use ansi_term::Colour::{Blue, Fixed, Green, Red, White, Yellow};
 use clap::{App, Arg};
-use failure::Error;
+use failure::{format_err, Error};
 use git2::{Branch, Repository, Status};
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
@@ -363,7 +363,20 @@ fn walk_path(path: &Path, depth: usize, flags: &Flags<'_>) -> Result<Option<Node
 }
 
 fn fallback(path: &Path, flags: &Flags<'_>) -> Result<Option<Node>, Error> {
-    let repo = Repository::discover(&path)?;
+    let repo = match Repository::discover(&path) {
+        Err(ref error)
+            if (error.class() == git2::ErrorClass::Repository
+                && error.code() == git2::ErrorCode::NotFound) =>
+        {
+            return Err(format_err!(
+                "no git repository found at {:?}, you might want to try \
+                 running git-tree with `--depth`, see `git-tree --help` for \
+                 details",
+                path
+            ));
+        }
+        otherwise => otherwise?,
+    };
 
     let node = walk_repository(&repo, file_name(path), &flags);
 
