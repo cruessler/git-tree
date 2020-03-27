@@ -248,19 +248,24 @@ impl fmt::Display for Node {
 
 struct Flags<'a> {
     all: bool,
+    only_show_changes: bool,
     depth: Option<&'a str>,
     summary: bool,
 }
 
-fn walk_repository(repo: &Repository, name: &OsStr, flags: &Flags<'_>) -> Result<Node, Error> {
+fn walk_repository(
+    repo: &Repository,
+    name: &OsStr,
+    flags: &Flags<'_>,
+) -> Result<Option<Node>, Error> {
     if flags.summary {
-        walk_summary(&repo, name)
+        walk_summary(&repo, name, &flags)
     } else {
         walk_entries(&repo, name, &flags)
     }
 }
 
-fn walk_entries(repo: &Repository, name: &OsStr, flags: &Flags<'_>) -> Result<Node, Error> {
+fn walk_entries(repo: &Repository, name: &OsStr, flags: &Flags<'_>) -> Result<Option<Node>, Error> {
     let statuses = repo.statuses(None)?;
 
     let mut root = Tree {
@@ -291,22 +296,26 @@ fn walk_entries(repo: &Repository, name: &OsStr, flags: &Flags<'_>) -> Result<No
         }
     }
 
-    Ok(Node::Tree(root))
+    Ok(Some(Node::Tree(root)))
 }
 
 fn file_name(path: &Path) -> &OsStr {
     path.file_name().unwrap_or_else(|| path.as_os_str())
 }
 
-fn walk_summary(repo: &Repository, name: &OsStr) -> Result<Node, Error> {
+fn walk_summary(repo: &Repository, name: &OsStr, flags: &Flags<'_>) -> Result<Option<Node>, Error> {
     let stats = DiffStat::from(repo)?;
+
+    if flags.only_show_changes && stats.insertions == 0 && stats.deletions == 0 {
+        return Ok(None);
+    }
 
     let summary = Summary {
         name: name.into(),
         stats: stats,
     };
 
-    Ok(Node::Summary(summary))
+    return Ok(Some(Node::Summary(summary)));
 }
 
 fn walk_directory(
@@ -344,7 +353,7 @@ fn walk_path(path: &Path, depth: usize, flags: &Flags<'_>) -> Result<Option<Node
             Ok(repo) => {
                 let node = walk_repository(&repo, file_name(path), &flags)?;
 
-                Ok(Some(node))
+                Ok(node)
             }
 
             _ => {
@@ -378,9 +387,7 @@ fn fallback(path: &Path, flags: &Flags<'_>) -> Result<Option<Node>, Error> {
         otherwise => otherwise?,
     };
 
-    let node = walk_repository(&repo, file_name(path), &flags);
-
-    node.map(|node| Some(node))
+    walk_repository(&repo, file_name(path), &flags)
 }
 
 fn run() -> Result<(), Error> {
@@ -413,11 +420,20 @@ fn run() -> Result<(), Error> {
             "Show only a summary containing the number of additions, deletions, \
              and changed files",
         ))
+        .arg(
+            Arg::with_name("only-show-changes")
+                .long("only-show-changes")
+                .help(
+                    "Only show repositories that contains changes (useful in \
+                     combination with --depth and --summary)",
+                ),
+        )
         .get_matches();
 
     let flags = Flags {
         all: matches.is_present("all"),
         depth: matches.value_of("depth"),
+        only_show_changes: matches.is_present("only-show-changes"),
         summary: matches.is_present("summary"),
     };
 
