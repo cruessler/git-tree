@@ -1,9 +1,6 @@
-use failure;
-use git2;
-
 use ansi_term::Colour::{Blue, Fixed, Green, Red, White, Yellow};
+use anyhow::{anyhow, Result};
 use clap::{App, Arg};
-use failure::{format_err, Error};
 use git2::{Branch, Repository, Status};
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
@@ -46,11 +43,11 @@ struct DiffStat {
 }
 
 impl DiffStat {
-    fn from(repo: &Repository) -> Result<DiffStat, Error> {
+    fn from(repo: &Repository) -> Result<DiffStat> {
         let head = repo.head()?;
         let object_id = head
             .target()
-            .ok_or(failure::err_msg("HEAD is not a direct reference"))?;
+            .ok_or(anyhow!("HEAD is not a direct reference"))?;
 
         let head_commit = repo.find_commit(object_id)?;
         let head_tree = head_commit.tree()?;
@@ -176,7 +173,11 @@ impl Lines for Tree {
         if let Some(&last) = last.get(0) {
             // The last child’s first line gets prepended by "└── ".
             // All following lines get prepended by "    ".
-            lines.extend(self.prepend_first_and_rest(last.lines(), "└── ".into(), "    ".into()));
+            lines.extend(self.prepend_first_and_rest(
+                last.lines(),
+                "└── ".into(),
+                "    ".into(),
+            ));
         }
 
         lines
@@ -253,11 +254,7 @@ struct Flags<'a> {
     summary: bool,
 }
 
-fn walk_repository(
-    repo: &Repository,
-    name: &OsStr,
-    flags: &Flags<'_>,
-) -> Result<Option<Node>, Error> {
+fn walk_repository(repo: &Repository, name: &OsStr, flags: &Flags<'_>) -> Result<Option<Node>> {
     if flags.summary {
         walk_summary(&repo, name, &flags)
     } else {
@@ -265,7 +262,7 @@ fn walk_repository(
     }
 }
 
-fn walk_entries(repo: &Repository, name: &OsStr, flags: &Flags<'_>) -> Result<Option<Node>, Error> {
+fn walk_entries(repo: &Repository, name: &OsStr, flags: &Flags<'_>) -> Result<Option<Node>> {
     let statuses = repo.statuses(None)?;
 
     let mut root = Tree {
@@ -275,10 +272,11 @@ fn walk_entries(repo: &Repository, name: &OsStr, flags: &Flags<'_>) -> Result<Op
 
     for entry in statuses.iter() {
         if flags.all || !entry.status().contains(git2::Status::IGNORED) {
-            let path = Path::new(entry.path().ok_or(failure::err_msg(format!(
-                "{:?} cannot be resolved to a path",
-                entry.path()
-            )))?);
+            let path = Path::new(
+                entry
+                    .path()
+                    .ok_or(anyhow!("{:?} cannot be resolved to a path", entry.path()))?,
+            );
 
             let file_name = file_name(&path);
 
@@ -303,7 +301,7 @@ fn file_name(path: &Path) -> &OsStr {
     path.file_name().unwrap_or_else(|| path.as_os_str())
 }
 
-fn walk_summary(repo: &Repository, name: &OsStr, flags: &Flags<'_>) -> Result<Option<Node>, Error> {
+fn walk_summary(repo: &Repository, name: &OsStr, flags: &Flags<'_>) -> Result<Option<Node>> {
     let stats = DiffStat::from(repo)?;
 
     if flags.only_show_changes && stats.insertions == 0 && stats.deletions == 0 {
@@ -318,12 +316,7 @@ fn walk_summary(repo: &Repository, name: &OsStr, flags: &Flags<'_>) -> Result<Op
     return Ok(Some(Node::Summary(summary)));
 }
 
-fn walk_directory(
-    path: &Path,
-    iter: ReadDir,
-    depth: usize,
-    flags: &Flags<'_>,
-) -> Result<Node, Error> {
+fn walk_directory(path: &Path, iter: ReadDir, depth: usize, flags: &Flags<'_>) -> Result<Node> {
     let mut tree = Tree {
         name: file_name(path).into(),
         children: BTreeMap::new(),
@@ -347,7 +340,7 @@ fn walk_directory(
     Ok(Node::Tree(tree))
 }
 
-fn walk_path(path: &Path, depth: usize, flags: &Flags<'_>) -> Result<Option<Node>, Error> {
+fn walk_path(path: &Path, depth: usize, flags: &Flags<'_>) -> Result<Option<Node>> {
     if path.is_dir() {
         match Repository::open(&path) {
             Ok(repo) => {
@@ -371,13 +364,13 @@ fn walk_path(path: &Path, depth: usize, flags: &Flags<'_>) -> Result<Option<Node
     }
 }
 
-fn fallback(path: &Path, flags: &Flags<'_>) -> Result<Option<Node>, Error> {
+fn fallback(path: &Path, flags: &Flags<'_>) -> Result<Option<Node>> {
     let repo = match Repository::discover(&path) {
         Err(ref error)
             if (error.class() == git2::ErrorClass::Repository
                 && error.code() == git2::ErrorCode::NotFound) =>
         {
-            return Err(format_err!(
+            return Err(anyhow!(
                 "no git repository found at {:?}, you might want to try \
                  running git-tree with `--depth`, see `git-tree --help` for \
                  details",
@@ -390,7 +383,7 @@ fn fallback(path: &Path, flags: &Flags<'_>) -> Result<Option<Node>, Error> {
     walk_repository(&repo, file_name(path), &flags)
 }
 
-fn run() -> Result<(), Error> {
+fn run() -> Result<()> {
     let matches = App::new("git-tree")
         .version(env!("CARGO_PKG_VERSION"))
         .author("Christoph Rüßler <christoph.ruessler@mailbox.org>")
