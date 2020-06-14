@@ -417,7 +417,7 @@ fn run() -> Result<()> {
             Arg::with_name("only-show-changes")
                 .long("only-show-changes")
                 .help(
-                    "Only show repositories that contains changes (useful in \
+                    "Only show repositories that contain changes (useful in \
                      combination with --depth and --summary)",
                 ),
         )
