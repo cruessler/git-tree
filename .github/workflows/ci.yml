@@ -1,3 +1,6 @@
+# This is a condensed version of [release-yml].
+#
+# [release-yml]: https://github.com/paskausks/rust-bin-github-workflows/blob/894a4f2debade42f8d7b5b95f493eaa33fdeb81b/.github/workflows/release.yml
 on: push
 
 name: Build and test
@@ -24,6 +27,13 @@ jobs:
 
     - name: Build (release)
       run: cargo build --verbose --release
+
+    - uses: actions/upload-artifact@v1
+      name: Upload binary
+      if: matrix.os == 'windows-latest'
+      with:
+        name: ${{ runner.os }}
+        path: target/release/git-tree.exe
 
     - name: Check formatting
       run: cargo fmt -- --check
