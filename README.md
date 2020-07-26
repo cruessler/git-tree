@@ -1,4 +1,4 @@
-[![Build Status](https://travis-ci.org/cruessler/git-tree.svg?branch=master)](https://travis-ci.org/cruessler/git-tree)
+[![Build Status](https://github.com/cruessler/git-tree/workflows/build/badge.svg)](https://github.com/cruessler/git-tree/actions?query=workflow%3Abuild)
 
 # git-tree
 
