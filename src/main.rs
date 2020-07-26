@@ -173,11 +173,7 @@ impl Lines for Tree {
         if let Some(&last) = last.get(0) {
             // The last child’s first line gets prepended by "└── ".
             // All following lines get prepended by "    ".
-            lines.extend(self.prepend_first_and_rest(
-                last.lines(),
-                "└── ".into(),
-                "    ".into(),
-            ));
+            lines.extend(self.prepend_first_and_rest(last.lines(), "└── ".into(), "    ".into()));
         }
 
         lines
