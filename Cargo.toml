@@ -1,6 +1,6 @@
 [package]
 name = "git-tree"
-version = "0.1.4"
+version = "0.1.5"
 authors = ["Christoph Rüßler <christoph.ruessler@mailbox.org>"]
 edition = "2018"
 description = "tree + git status: displays git status info in a tree"
