@@ -1,6 +1,5 @@
 use ansi_term::Colour::{Blue, Fixed, Green, Red, White, Yellow};
 use anyhow::{anyhow, Result};
-use clap::{App, Arg};
 use git2::{Branch, Repository, Status};
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
@@ -8,6 +7,7 @@ use std::fmt;
 use std::fs::ReadDir;
 use std::path::{Component, Components, Path};
 use std::str;
+use structopt::StructOpt;
 
 #[derive(Debug)]
 enum Node {
@@ -243,22 +243,15 @@ impl fmt::Display for Node {
     }
 }
 
-struct Flags<'a> {
-    all: bool,
-    only_show_changes: bool,
-    depth: Option<&'a str>,
-    summary: bool,
-}
-
-fn walk_repository(repo: &Repository, name: &OsStr, flags: &Flags<'_>) -> Result<Option<Node>> {
-    if flags.summary {
-        walk_summary(&repo, name, &flags)
+fn walk_repository(repo: &Repository, name: &OsStr, opt: &Opt) -> Result<Option<Node>> {
+    if opt.summary {
+        walk_summary(&repo, name, &opt)
     } else {
-        walk_entries(&repo, name, &flags)
+        walk_entries(&repo, name, &opt)
     }
 }
 
-fn walk_entries(repo: &Repository, name: &OsStr, flags: &Flags<'_>) -> Result<Option<Node>> {
+fn walk_entries(repo: &Repository, name: &OsStr, opt: &Opt) -> Result<Option<Node>> {
     let statuses = repo.statuses(None)?;
 
     let mut root = Tree {
@@ -267,7 +260,7 @@ fn walk_entries(repo: &Repository, name: &OsStr, flags: &Flags<'_>) -> Result<Op
     };
 
     for entry in statuses.iter() {
-        if flags.all || !entry.status().contains(git2::Status::IGNORED) {
+        if opt.all || !entry.status().contains(git2::Status::IGNORED) {
             let path = Path::new(
                 entry
                     .path()
@@ -297,10 +290,10 @@ fn file_name(path: &Path) -> &OsStr {
     path.file_name().unwrap_or_else(|| path.as_os_str())
 }
 
-fn walk_summary(repo: &Repository, name: &OsStr, flags: &Flags<'_>) -> Result<Option<Node>> {
+fn walk_summary(repo: &Repository, name: &OsStr, opt: &Opt) -> Result<Option<Node>> {
     let stats = DiffStat::from(repo)?;
 
-    if flags.only_show_changes && stats.insertions == 0 && stats.deletions == 0 {
+    if opt.only_show_changes && stats.insertions == 0 && stats.deletions == 0 {
         return Ok(None);
     }
 
@@ -312,7 +305,7 @@ fn walk_summary(repo: &Repository, name: &OsStr, flags: &Flags<'_>) -> Result<Op
     return Ok(Some(Node::Summary(summary)));
 }
 
-fn walk_directory(path: &Path, iter: ReadDir, depth: usize, flags: &Flags<'_>) -> Result<Node> {
+fn walk_directory(path: &Path, iter: ReadDir, depth: usize, opt: &Opt) -> Result<Node> {
     let mut tree = Tree {
         name: file_name(path).into(),
         children: BTreeMap::new(),
@@ -323,7 +316,7 @@ fn walk_directory(path: &Path, iter: ReadDir, depth: usize, flags: &Flags<'_>) -
     let new_entries = directories
         .iter()
         .filter_map(|ref entry| {
-            walk_path(&entry.path(), depth - 1, &flags)
+            walk_path(&entry.path(), depth - 1, &opt)
                 .ok()
                 .and_then(|child| child.map(|child| (child, entry.file_name())))
         })
@@ -336,18 +329,18 @@ fn walk_directory(path: &Path, iter: ReadDir, depth: usize, flags: &Flags<'_>) -
     Ok(Node::Tree(tree))
 }
 
-fn walk_path(path: &Path, depth: usize, flags: &Flags<'_>) -> Result<Option<Node>> {
+fn walk_path(path: &Path, depth: usize, opt: &Opt) -> Result<Option<Node>> {
     if path.is_dir() {
         match Repository::open(&path) {
             Ok(repo) => {
-                let node = walk_repository(&repo, file_name(path), &flags)?;
+                let node = walk_repository(&repo, file_name(path), &opt)?;
 
                 Ok(node)
             }
 
             _ => {
                 if depth > 0 {
-                    let node = walk_directory(&path, path.read_dir()?, depth, &flags)?;
+                    let node = walk_directory(&path, path.read_dir()?, depth, &opt)?;
 
                     Ok(Some(node))
                 } else {
@@ -360,7 +353,7 @@ fn walk_path(path: &Path, depth: usize, flags: &Flags<'_>) -> Result<Option<Node
     }
 }
 
-fn fallback(path: &Path, flags: &Flags<'_>) -> Result<Option<Node>> {
+fn fallback(path: &Path, opt: &Opt) -> Result<Option<Node>> {
     let repo = match Repository::discover(&path) {
         Err(ref error)
             if (error.class() == git2::ErrorClass::Repository
@@ -376,66 +369,49 @@ fn fallback(path: &Path, flags: &Flags<'_>) -> Result<Option<Node>> {
         otherwise => otherwise?,
     };
 
-    walk_repository(&repo, file_name(path), &flags)
+    walk_repository(&repo, file_name(path), &opt)
+}
+
+#[derive(Debug, StructOpt)]
+/// tree + git status: displays git status info in a tree
+///
+/// git-tree searches for a git repository the same way git does, and displays
+/// a tree showing untracked and modified files. The tree’s root is the
+/// repository’s root. The tree’s items are colored to indicate their status
+/// (green: new, red: modified, blue: ignored). Changes to files in the index
+/// are shown in bold.
+///
+/// A column in front of each file’s name indicates changes to the index and
+/// the working tree, respectively (M: modified, N: new).
+#[structopt(author)]
+struct Opt {
+    #[structopt(short, long)]
+    /// Include ignored files
+    all: bool,
+
+    #[structopt(long, default_value = "0")]
+    /// Recursively search for repositories up to <depth> levels deep
+    depth: usize,
+
+    #[structopt(short, long)]
+    /// Show only a summary containing the number of additions, deletions, and
+    /// changed files
+    summary: bool,
+
+    #[structopt(long)]
+    /// Only show repositories that contains changes (useful in combination
+    /// with --depth and --summary)
+    only_show_changes: bool,
 }
 
 fn run() -> Result<()> {
-    let matches = App::new("git-tree")
-        .version(env!("CARGO_PKG_VERSION"))
-        .author("Christoph Rüßler <christoph.ruessler@mailbox.org>")
-        .about("tree + git status: displays git status info in a tree")
-        .after_help(
-            "git-tree searches for a git repository the same way git does, and \
-             displays a tree showing untracked and modified files. The tree’s \
-             root is the repository’s root. The tree’s items are colored to \
-             indicate their status (green: new, red: modified, blue: ignored). \
-             Changes to files in the index are shown in bold.\n\
-             A column in front of each file’s name indicates changes to the \
-             index and the working tree, respectively (M: modified, N: new).",
-        )
-        .arg(
-            Arg::with_name("all")
-                .short("a")
-                .long("all")
-                .help("Include ignored files"),
-        )
-        .arg(
-            Arg::with_name("depth")
-                .long("depth")
-                .takes_value(true)
-                .help("Recursively search for repositories up to <depth> levels deep"),
-        )
-        .arg(Arg::with_name("summary").short("s").long("summary").help(
-            "Show only a summary containing the number of additions, deletions, \
-             and changed files",
-        ))
-        .arg(
-            Arg::with_name("only-show-changes")
-                .long("only-show-changes")
-                .help(
-                    "Only show repositories that contain changes (useful in \
-                     combination with --depth and --summary)",
-                ),
-        )
-        .get_matches();
-
-    let flags = Flags {
-        all: matches.is_present("all"),
-        depth: matches.value_of("depth"),
-        only_show_changes: matches.is_present("only-show-changes"),
-        summary: matches.is_present("summary"),
-    };
+    let opt = Opt::from_args();
 
     let path = Path::new(".");
 
-    let depth = match flags.depth {
-        Some(depth) => depth.parse::<usize>()?,
-        None => 0,
-    };
-
-    let node = match walk_path(&path, depth, &flags)? {
+    let node = match walk_path(&path, opt.depth, &opt)? {
         node @ Some(_) => node,
-        None => fallback(&path, &flags)?,
+        None => fallback(&path, &opt)?,
     };
 
     match node {
