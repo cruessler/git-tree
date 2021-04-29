@@ -8,5 +8,5 @@ description = "tree + git status: displays git status info in a tree"
 [dependencies]
 ansi_term = "0.12.1"
 anyhow = "1.0.40"
-git2 = "0.13.17"
+git2 = "0.13.18"
 structopt = { version = "0.3", features = [ "suggestions", "wrap_help" ] }
