@@ -7,7 +7,7 @@ description = "tree + git status: displays git status info in a tree"
 
 [dependencies]
 ansi_term = "0.12.1"
-anyhow = "1.0.70"
+anyhow = "1.0.71"
 # We vendor OpenSSL. If we do not, compilation will fail on recent (as of
 # January 2023) Ubuntu systems.
 git2 = { version = "0.17.1", features = ["vendored-openssl"] }
