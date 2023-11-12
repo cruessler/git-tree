@@ -1,5 +1,6 @@
 use ansi_term::Colour::{Blue, Fixed, Green, Red, White, Yellow};
 use anyhow::{anyhow, Result};
+use clap::Parser;
 use git2::{Branch, Repository, Status};
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
@@ -7,7 +8,6 @@ use std::fmt;
 use std::fs::ReadDir;
 use std::path::{Component, Components, Path};
 use std::str;
-use structopt::StructOpt;
 
 #[derive(Debug)]
 enum Node {
@@ -243,15 +243,15 @@ impl fmt::Display for Node {
     }
 }
 
-fn walk_repository(repo: &Repository, name: &OsStr, opt: &Opt) -> Result<Option<Node>> {
-    if opt.summary {
-        walk_summary(&repo, name, &opt)
+fn walk_repository(repo: &Repository, name: &OsStr, args: &Args) -> Result<Option<Node>> {
+    if args.summary {
+        walk_summary(&repo, name, &args)
     } else {
-        walk_entries(&repo, name, &opt)
+        walk_entries(&repo, name, &args)
     }
 }
 
-fn walk_entries(repo: &Repository, name: &OsStr, opt: &Opt) -> Result<Option<Node>> {
+fn walk_entries(repo: &Repository, name: &OsStr, args: &Args) -> Result<Option<Node>> {
     let statuses = repo.statuses(None)?;
 
     let mut root = Tree {
@@ -260,7 +260,7 @@ fn walk_entries(repo: &Repository, name: &OsStr, opt: &Opt) -> Result<Option<Nod
     };
 
     for entry in statuses.iter() {
-        if opt.all || !entry.status().contains(git2::Status::IGNORED) {
+        if args.all || !entry.status().contains(git2::Status::IGNORED) {
             let path = Path::new(
                 entry
                     .path()
@@ -290,10 +290,10 @@ fn file_name(path: &Path) -> &OsStr {
     path.file_name().unwrap_or_else(|| path.as_os_str())
 }
 
-fn walk_summary(repo: &Repository, name: &OsStr, opt: &Opt) -> Result<Option<Node>> {
+fn walk_summary(repo: &Repository, name: &OsStr, args: &Args) -> Result<Option<Node>> {
     let stats = DiffStat::from(repo)?;
 
-    if opt.only_show_changes && stats.insertions == 0 && stats.deletions == 0 {
+    if args.only_show_changes && stats.insertions == 0 && stats.deletions == 0 {
         return Ok(None);
     }
 
@@ -305,7 +305,7 @@ fn walk_summary(repo: &Repository, name: &OsStr, opt: &Opt) -> Result<Option<Nod
     return Ok(Some(Node::Summary(summary)));
 }
 
-fn walk_directory(path: &Path, iter: ReadDir, depth: usize, opt: &Opt) -> Result<Node> {
+fn walk_directory(path: &Path, iter: ReadDir, depth: usize, args: &Args) -> Result<Node> {
     let mut tree = Tree {
         name: file_name(path).into(),
         children: BTreeMap::new(),
@@ -316,7 +316,7 @@ fn walk_directory(path: &Path, iter: ReadDir, depth: usize, opt: &Opt) -> Result
     let new_entries = directories
         .iter()
         .filter_map(|ref entry| {
-            walk_path(&entry.path(), depth - 1, &opt)
+            walk_path(&entry.path(), depth - 1, &args)
                 .ok()
                 .and_then(|child| child.map(|child| (child, entry.file_name())))
         })
@@ -329,18 +329,18 @@ fn walk_directory(path: &Path, iter: ReadDir, depth: usize, opt: &Opt) -> Result
     Ok(Node::Tree(tree))
 }
 
-fn walk_path(path: &Path, depth: usize, opt: &Opt) -> Result<Option<Node>> {
+fn walk_path(path: &Path, depth: usize, args: &Args) -> Result<Option<Node>> {
     if path.is_dir() {
         match Repository::open(&path) {
             Ok(repo) => {
-                let node = walk_repository(&repo, file_name(path), &opt)?;
+                let node = walk_repository(&repo, file_name(path), &args)?;
 
                 Ok(node)
             }
 
             _ => {
                 if depth > 0 {
-                    let node = walk_directory(&path, path.read_dir()?, depth, &opt)?;
+                    let node = walk_directory(&path, path.read_dir()?, depth, &args)?;
 
                     Ok(Some(node))
                 } else {
@@ -353,7 +353,7 @@ fn walk_path(path: &Path, depth: usize, opt: &Opt) -> Result<Option<Node>> {
     }
 }
 
-fn fallback(path: &Path, opt: &Opt) -> Result<Option<Node>> {
+fn fallback(path: &Path, args: &Args) -> Result<Option<Node>> {
     let repo = match Repository::discover(&path) {
         Err(ref error)
             if (error.class() == git2::ErrorClass::Repository
@@ -369,10 +369,10 @@ fn fallback(path: &Path, opt: &Opt) -> Result<Option<Node>> {
         otherwise => otherwise?,
     };
 
-    walk_repository(&repo, file_name(path), &opt)
+    walk_repository(&repo, file_name(path), &args)
 }
 
-#[derive(Debug, StructOpt)]
+#[derive(Parser, Debug)]
 /// tree + git status: displays git status info in a tree
 ///
 /// git-tree searches for a git repository the same way git does, and displays
@@ -383,35 +383,35 @@ fn fallback(path: &Path, opt: &Opt) -> Result<Option<Node>> {
 ///
 /// A column in front of each file’s name indicates changes to the index and
 /// the working tree, respectively (M: modified, N: new).
-#[structopt(author)]
-struct Opt {
-    #[structopt(short, long)]
+#[command(author, version, about)]
+struct Args {
     /// Include ignored files
+    #[arg(short, long)]
     all: bool,
 
-    #[structopt(long, default_value = "0")]
     /// Recursively search for repositories up to <depth> levels deep
+    #[arg(long, default_value = "0")]
     depth: usize,
 
-    #[structopt(short, long)]
     /// Show only a summary containing the number of additions, deletions, and
     /// changed files
+    #[arg(short, long)]
     summary: bool,
 
-    #[structopt(long)]
     /// Only show repositories that contains changes (useful in combination
     /// with --depth and --summary)
+    #[arg(long)]
     only_show_changes: bool,
 }
 
 fn run() -> Result<()> {
-    let opt = Opt::from_args();
+    let args = Args::parse();
 
     let path = Path::new(".");
 
-    let node = match walk_path(&path, opt.depth, &opt)? {
+    let node = match walk_path(&path, args.depth, &args)? {
         node @ Some(_) => node,
-        None => fallback(&path, &opt)?,
+        None => fallback(&path, &args)?,
     };
 
     match node {
