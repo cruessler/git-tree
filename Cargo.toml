@@ -10,5 +10,5 @@ ansi_term = "0.12.1"
 anyhow = "1.0.80"
 # We vendor OpenSSL. If we do not, compilation will fail on recent (as of
 # January 2023) Ubuntu systems.
-git2 = { version = "0.18.1", features = ["vendored-openssl"] }
+git2 = { version = "0.18.3", features = ["vendored-openssl"] }
 clap = { version = "4", features = [ "derive", "wrap_help" ] }
