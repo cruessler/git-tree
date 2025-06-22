@@ -78,8 +78,8 @@ impl Tree {
 
     fn add_node_at_path(&mut self, node: Node, name: OsString, path: &mut Components<'_>) {
         match path.next() {
-            Some(Component::Normal(ref dir)) => {
-                dir.to_str().map(|dir| {
+            Some(Component::Normal(dir)) => {
+                if let Some(dir) = dir.to_str() {
                     let new_node = self.children.entry(dir.into()).or_insert(Node::Tree(Tree {
                         name: dir.into(),
                         children: BTreeMap::new(),
@@ -88,7 +88,7 @@ impl Tree {
                     if let &mut Node::Tree(ref mut new_node) = new_node {
                         new_node.add_node_at_path(node, name, path)
                     }
-                });
+                };
             }
 
             Some(_) => unimplemented!(),
@@ -140,9 +140,9 @@ trait Lines {
 impl Lines for Node {
     fn lines(&self) -> Vec<OsString> {
         match self {
-            &Node::Tree(ref node) => node.lines(),
-            &Node::Summary(ref node) => node.lines(),
-            &Node::Leaf(ref node) => node.lines(),
+            Node::Tree(node) => node.lines(),
+            Node::Summary(node) => node.lines(),
+            Node::Leaf(node) => node.lines(),
         }
     }
 }
@@ -170,7 +170,7 @@ impl Lines for Tree {
                 .collect::<Vec<_>>(),
         );
 
-        if let Some(&last) = last.get(0) {
+        if let Some(&last) = last.first() {
             // The last child’s first line gets prepended by "└── ".
             // All following lines get prepended by "    ".
             lines.extend(self.prepend_first_and_rest(last.lines(), "└── ".into(), "    ".into()));
@@ -236,7 +236,7 @@ impl Lines for Leaf {
 impl fmt::Display for Node {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for l in self.lines() {
-            write!(f, "{}\n", l.as_os_str().to_string_lossy())?;
+            writeln!(f, "{}", l.as_os_str().to_string_lossy())?;
         }
 
         Ok(())
@@ -245,9 +245,9 @@ impl fmt::Display for Node {
 
 fn walk_repository(repo: &Repository, name: &OsStr, args: &Args) -> Result<Option<Node>> {
     if args.summary {
-        walk_summary(&repo, name, &args)
+        walk_summary(repo, name, args)
     } else {
-        walk_entries(&repo, name, &args)
+        walk_entries(repo, name, args)
     }
 }
 
@@ -267,19 +267,16 @@ fn walk_entries(repo: &Repository, name: &OsStr, args: &Args) -> Result<Option<N
                     .ok_or(anyhow!("{:?} cannot be resolved to a path", entry.path()))?,
             );
 
-            let file_name = file_name(&path);
+            let file_name = file_name(path);
 
             let leaf = Leaf {
                 name: file_name.into(),
                 status: entry.status(),
             };
 
-            entry
-                .path()
-                .and_then(|path| Path::new(path).parent())
-                .map(|parent| {
-                    root.add_leaf_at_path(leaf, &mut parent.components());
-                });
+            if let Some(parent) = entry.path().and_then(|path| Path::new(path).parent()) {
+                root.add_leaf_at_path(leaf, &mut parent.components());
+            }
         }
     }
 
@@ -287,7 +284,7 @@ fn walk_entries(repo: &Repository, name: &OsStr, args: &Args) -> Result<Option<N
 }
 
 fn file_name(path: &Path) -> &OsStr {
-    path.file_name().unwrap_or_else(|| path.as_os_str())
+    path.file_name().unwrap_or(path.as_os_str())
 }
 
 fn walk_summary(repo: &Repository, name: &OsStr, args: &Args) -> Result<Option<Node>> {
@@ -299,10 +296,10 @@ fn walk_summary(repo: &Repository, name: &OsStr, args: &Args) -> Result<Option<N
 
     let summary = Summary {
         name: name.into(),
-        stats: stats,
+        stats,
     };
 
-    return Ok(Some(Node::Summary(summary)));
+    Ok(Some(Node::Summary(summary)))
 }
 
 fn walk_directory(path: &Path, iter: ReadDir, depth: usize, args: &Args) -> Result<Node> {
@@ -315,8 +312,8 @@ fn walk_directory(path: &Path, iter: ReadDir, depth: usize, args: &Args) -> Resu
 
     let new_entries = directories
         .iter()
-        .filter_map(|ref entry| {
-            walk_path(&entry.path(), depth - 1, &args)
+        .filter_map(|entry| {
+            walk_path(&entry.path(), depth - 1, args)
                 .ok()
                 .and_then(|child| child.map(|child| (child, entry.file_name())))
         })
@@ -331,16 +328,16 @@ fn walk_directory(path: &Path, iter: ReadDir, depth: usize, args: &Args) -> Resu
 
 fn walk_path(path: &Path, depth: usize, args: &Args) -> Result<Option<Node>> {
     if path.is_dir() {
-        match Repository::open(&path) {
+        match Repository::open(path) {
             Ok(repo) => {
-                let node = walk_repository(&repo, file_name(path), &args)?;
+                let node = walk_repository(&repo, file_name(path), args)?;
 
                 Ok(node)
             }
 
             _ => {
                 if depth > 0 {
-                    let node = walk_directory(&path, path.read_dir()?, depth, &args)?;
+                    let node = walk_directory(path, path.read_dir()?, depth, args)?;
 
                     Ok(Some(node))
                 } else {
@@ -354,7 +351,7 @@ fn walk_path(path: &Path, depth: usize, args: &Args) -> Result<Option<Node>> {
 }
 
 fn fallback(path: &Path, args: &Args) -> Result<Option<Node>> {
-    let repo = match Repository::discover(&path) {
+    let repo = match Repository::discover(path) {
         Err(ref error)
             if (error.class() == git2::ErrorClass::Repository
                 && error.code() == git2::ErrorCode::NotFound) =>
@@ -369,7 +366,7 @@ fn fallback(path: &Path, args: &Args) -> Result<Option<Node>> {
         otherwise => otherwise?,
     };
 
-    walk_repository(&repo, file_name(path), &args)
+    walk_repository(&repo, file_name(path), args)
 }
 
 #[derive(Parser, Debug)]
@@ -409,9 +406,9 @@ fn run() -> Result<()> {
 
     let path = Path::new(".");
 
-    let node = match walk_path(&path, args.depth, &args)? {
+    let node = match walk_path(path, args.depth, &args)? {
         node @ Some(_) => node,
-        None => fallback(&path, &args)?,
+        None => fallback(path, &args)?,
     };
 
     match node {
