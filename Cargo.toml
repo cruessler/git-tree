@@ -11,4 +11,5 @@ anyhow = "1.0.93"
 # We vendor OpenSSL. If we do not, compilation will fail on recent (as of
 # January 2023) Ubuntu systems.
 git2 = { version = "0.20.0", features = ["vendored-openssl"] }
+gix = { version = "0.78.0", default-features = false, features = [ "max-performance", "status" ] }
 clap = { version = "4", features = [ "derive", "wrap_help" ] }

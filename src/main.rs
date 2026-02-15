@@ -1,7 +1,8 @@
 use ansi_term::Colour::{Blue, Fixed, Green, Red, White, Yellow};
 use anyhow::{anyhow, Result};
 use clap::Parser;
-use git2::{Branch, Repository, Status};
+use git2::{Branch, Repository};
+use gix::bstr::ByteSlice;
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
 use std::fmt;
@@ -26,6 +27,60 @@ struct Tree {
 struct Summary {
     name: OsString,
     stats: DiffStat,
+}
+
+// TODO:
+// Either rename some variants to match `git2::Status` variants or add docs on how they are
+// related.
+#[derive(Debug)]
+enum Status {
+    WorktreeRemoved,
+    WorktreeAdded,
+    WorktreeModified,
+    IndexRemoved,
+    IndexAdded,
+    IndexModified,
+    TypeChange,
+    Renamed,
+    Copied,
+    IntentToAdd,
+    Conflict,
+
+    // TODO:
+    // Is this the correct name? This is currently used to reflect `item.summary(): Option<Status>
+    // == None`.
+    //
+    // We might want to consider moving this out of status at some point, converting calling code
+    // to `Option<Status>` if that makes sense.
+    Ignored,
+}
+
+impl From<gix::status::Item> for Status {
+    fn from(item: gix::status::Item) -> Self {
+        use gix::diff::index::ChangeRef;
+
+        match item {
+            gix::status::Item::IndexWorktree(item) => match item.summary() {
+                Some(summary) => match summary {
+                    gix::status::index_worktree::iter::Summary::Removed => Self::WorktreeRemoved,
+                    gix::status::index_worktree::iter::Summary::Added => Self::WorktreeAdded,
+                    gix::status::index_worktree::iter::Summary::Modified => Self::WorktreeModified,
+                    gix::status::index_worktree::iter::Summary::TypeChange => Self::TypeChange,
+                    gix::status::index_worktree::iter::Summary::Renamed => Self::Renamed,
+                    gix::status::index_worktree::iter::Summary::Copied => Self::Copied,
+                    gix::status::index_worktree::iter::Summary::IntentToAdd => Self::IntentToAdd,
+                    gix::status::index_worktree::iter::Summary::Conflict => Self::Conflict,
+                },
+                None => Self::Ignored,
+            },
+            gix::status::Item::TreeIndex(change_ref) => match change_ref {
+                ChangeRef::Addition { .. } => Self::IndexAdded,
+                ChangeRef::Deletion { .. } => Self::IndexRemoved,
+                ChangeRef::Modification { .. } => Self::IndexModified,
+                ChangeRef::Rewrite { .. } => Self::IndexModified,
+            },
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -201,23 +256,26 @@ impl Lines for Summary {
 impl Lines for Leaf {
     fn lines(&self) -> Vec<OsString> {
         let style = match self.status {
-            s if s.contains(git2::Status::WT_MODIFIED) => Red.normal(),
-            s if s.contains(git2::Status::INDEX_MODIFIED) => Red.bold(),
-            s if s.contains(git2::Status::WT_NEW) => Green.normal(),
-            s if s.contains(git2::Status::INDEX_NEW) => Green.bold(),
-            s if s.contains(git2::Status::IGNORED) => Blue.normal(),
+            Status::WorktreeModified => Red.normal(),
+            Status::IndexModified => Red.bold(),
+            Status::WorktreeAdded => Green.normal(),
+            Status::IndexAdded => Green.bold(),
+            Status::Ignored => Blue.normal(),
             _ => White.normal(),
         };
 
         let modifier_index = match self.status {
-            s if s.contains(git2::Status::INDEX_MODIFIED) => "M",
-            s if s.contains(git2::Status::INDEX_NEW) => "N",
+            Status::IndexModified => "M",
+            Status::IndexAdded => "N",
             _ => "-",
         };
 
         let modifier_worktree = match self.status {
-            s if s.contains(git2::Status::WT_MODIFIED) => "M",
-            s if s.contains(git2::Status::WT_NEW) => "N",
+            Status::WorktreeModified => "M",
+            Status::WorktreeAdded => "N",
+            // TODO:
+            // Mention "D" in help.
+            Status::WorktreeRemoved => "D",
             _ => "-",
         };
 
@@ -252,30 +310,34 @@ fn walk_repository(repo: &Repository, name: &OsStr, args: &Args) -> Result<Optio
 }
 
 fn walk_entries(repo: &Repository, name: &OsStr, args: &Args) -> Result<Option<Node>> {
-    let statuses = repo.statuses(None)?;
+    let repo = gix::open(
+        repo.workdir()
+            .ok_or(anyhow!("`Repository::workdir()` returned `None`"))?,
+    )?;
+    let status = repo.status(gix::progress::Discard)?;
 
     let mut root = Tree {
         name: name.into(),
         children: BTreeMap::new(),
     };
 
-    for entry in statuses.iter() {
-        if args.all || !entry.status().contains(git2::Status::IGNORED) {
-            let path = Path::new(
-                entry
-                    .path()
-                    .ok_or(anyhow!("{:?} cannot be resolved to a path", entry.path()))?,
-            );
+    for item in status.into_iter(Vec::new())? {
+        let item = item?;
+        let status = item.clone().into();
 
+        if args.all || !matches!(status, Status::Ignored) {
+            let path = Path::new(item.location().to_os_str()?);
             let file_name = file_name(path);
 
-            let leaf = Leaf {
-                name: file_name.into(),
-                status: entry.status(),
-            };
+            let parent_path = path.parent();
 
-            if let Some(parent) = entry.path().and_then(|path| Path::new(path).parent()) {
-                root.add_leaf_at_path(leaf, &mut parent.components());
+            if let Some(parent_path) = parent_path {
+                let leaf = Leaf {
+                    name: file_name.into(),
+                    status: item.clone().into(),
+                };
+
+                root.add_leaf_at_path(leaf, &mut parent_path.components());
             }
         }
     }
