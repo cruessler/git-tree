@@ -1,2 +1,4 @@
 /target/
 **/*.rs.bk
+
+**/generated-do-not-edit/

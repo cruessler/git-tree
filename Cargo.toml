@@ -12,3 +12,7 @@ anyhow = "1.0.93"
 # January 2023) Ubuntu systems.
 git2 = { version = "0.20.4", features = ["vendored-openssl"] }
 clap = { version = "4", features = [ "derive", "wrap_help" ] }
+
+[dev-dependencies]
+gix-testtools = "0.18.0"
+snapbox = { version = "1.0.0", features = ["cmd", "term-svg"] }
