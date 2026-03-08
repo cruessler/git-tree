@@ -1,4 +1,4 @@
-<svg width="740px" height="110px" xmlns="http://www.w3.org/2000/svg">
+<svg width="740px" height="182px" xmlns="http://www.w3.org/2000/svg">
   <style>
     .fg { fill: #AAAAAA }
     .bg { fill: #000000 }
@@ -22,11 +22,19 @@
 </tspan>
     <tspan x="10px" y="46px"><tspan>├── </tspan><tspan class="fg-ansi256-244">-</tspan><tspan class="fg-ansi256-244">M</tspan><tspan> </tspan><tspan class="fg-red">1.txt</tspan>
 </tspan>
-    <tspan x="10px" y="64px"><tspan>└── </tspan><tspan class="fg-ansi256-244">-</tspan><tspan class="fg-ansi256-244">M</tspan><tspan> </tspan><tspan class="fg-red">2.txt</tspan>
+    <tspan x="10px" y="64px"><tspan>├── </tspan><tspan class="fg-ansi256-244">-</tspan><tspan class="fg-ansi256-244">M</tspan><tspan> </tspan><tspan class="fg-red">2.txt</tspan>
 </tspan>
-    <tspan x="10px" y="82px">
+    <tspan x="10px" y="82px"><tspan>└── a</tspan>
 </tspan>
-    <tspan x="10px" y="100px">
+    <tspan x="10px" y="100px"><tspan>    └── b</tspan>
+</tspan>
+    <tspan x="10px" y="118px"><tspan>        └── c</tspan>
+</tspan>
+    <tspan x="10px" y="136px"><tspan>            └── </tspan><tspan class="fg-ansi256-244">-</tspan><tspan class="fg-ansi256-244">M</tspan><tspan> </tspan><tspan class="fg-red">3.txt</tspan>
+</tspan>
+    <tspan x="10px" y="154px">
+</tspan>
+    <tspan x="10px" y="172px">
 </tspan>
   </text>
 
