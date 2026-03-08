@@ -1,0 +1,141 @@
+# This is a condensed version of [release-yml] which in turn is based on
+# `ripgrep`'s release workflow.
+#
+# [release-yml]: https://github.com/GitoxideLabs/gitoxide/blob/6183fd092d7acd43763fe15be400ce81e7172775/.github/workflows/release.yml
+
+name: Release
+
+on: workflow_dispatch
+
+defaults:
+  run:
+    shell: bash  # Use `bash` even in the Windows jobs.
+
+jobs:
+  create-draft-release:
+    runs-on: ubuntu-slim
+
+    permissions:
+      contents: write  # Allows the use of `gh release create`.
+
+    steps:
+      - name: Get the release version from the tag
+        if: env.VERSION == ''
+        run: echo "VERSION=$REF_NAME" >> "$GITHUB_ENV"
+        env:
+          REF_NAME: ${{ github.ref_name }}
+
+      - name: Validate version against Cargo.toml
+        run: |
+          manifest_version="$(yq -r .package.version Cargo.toml)"
+          echo "version to name the release: $VERSION"
+          echo "version Cargo.toml suggests: v$manifest_version"
+
+          case "$VERSION" in
+          "v$manifest_version" )
+            echo 'OK: Release name/version agrees with Cargo.toml version.'
+            ;;
+          "$manifest_version" )
+            echo 'STOPPING: Release name/version is missing the leading "v".'
+            exit 1
+            ;;
+          * )
+            echo 'STOPPING: Release name/version and Cargo.toml version do not match.'
+            echo 'STOPPING: Usually this means either a wrong tag name or wrong version in Cargo.toml.'
+            exit 1
+            ;;
+          esac
+
+      - name: Create GitHub release
+        run: gh release create "$VERSION" --title="$VERSION" --draft
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    outputs:
+      version: ${{ env.VERSION }}
+
+  build-binary-and-upload-artifact:
+    needs: [ create-draft-release ]
+
+    strategy:
+      matrix:
+        target:
+          - x86_64-unknown-linux-gnu
+          - aarch64-apple-darwin
+          - x86_64-pc-windows-msvc
+        include:
+          - rust: stable
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+
+    runs-on: ${{ matrix.os }}
+
+    permissions:
+      contents: write  # Allows the use of `gh release upload`.
+
+    env:
+      VERSION: ${{ needs.create-draft-release.outputs.version }}
+      TARGET: ${{ matrix.target }}
+      TARGET_FLAGS: --target=${{ matrix.target }}
+      TARGET_DIR: target/${{ matrix.target }}
+      PROFILE: release
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Install Rust
+        env:
+          RUST: ${{ matrix.rust }}
+        run: |
+          rustup update "$RUST"
+          rustup default "$RUST"
+          rustup target add "$TARGET"
+
+      - name: Show flags used for compiling
+        run: |
+          echo "TARGET_FLAGS is: $TARGET_FLAGS"
+          echo "TARGET_DIR is: $TARGET_DIR"
+
+      - name: Build release binary
+        run: |
+          cargo build --verbose --profile="$PROFILE" "$TARGET_FLAGS"
+
+      - name: Determine archive basename
+        run: echo "ARCHIVE=git-tree-$VERSION-$TARGET" >> "$GITHUB_ENV"
+
+      - name: Pre-populate directory for archive
+        run: |
+          mkdir -- "$ARCHIVE"
+          cp -- {README.md,LICENSE} "$ARCHIVE/"
+
+      - name: Build archive (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          file -- "$TARGET_DIR/$PROFILE"/{git-tree}.exe
+          cp -- "$TARGET_DIR/$PROFILE"/{git-tree}.exe "$ARCHIVE/"
+          7z a "$ARCHIVE.zip" "$ARCHIVE"
+          /usr/bin/core_perl/shasum --algorithm=256 --binary -- "$ARCHIVE.zip" > "$ARCHIVE.zip.sha256"
+          echo "ASSET=$ARCHIVE.zip" >> "$GITHUB_ENV"
+          echo "ASSET_SUM=$ARCHIVE.zip.sha256" >> "$GITHUB_ENV"
+
+      - name: Build archive (Unix)
+        if: matrix.os != 'windows-latest'
+        run: |
+          file -- "$TARGET_DIR/$PROFILE"/{git-tree}
+          cp -- "$TARGET_DIR/$PROFILE"/{git-tree} "$ARCHIVE/"
+          tar czf "$ARCHIVE.tar.gz" -- "$ARCHIVE"
+          shasum --algorithm=256 --binary -- "$ARCHIVE.tar.gz" > "$ARCHIVE.tar.gz.sha256"
+          echo "ASSET=$ARCHIVE.tar.gz" >> "$GITHUB_ENV"
+          echo "ASSET_SUM=$ARCHIVE.tar.gz.sha256" >> "$GITHUB_ENV"
+
+      - name: Upload release archive
+        run: gh release upload "$VERSION" "$ASSET" "$ASSET_SUM"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
