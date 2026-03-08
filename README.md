@@ -18,3 +18,8 @@ cargo install --git https://github.com/cruessler/git-tree
 This will download the source code and compile the binary which can then be
 found in `~/.cargo/bin`. If that’s in your `$PATH`, you can type `git-tree
 --help` to get an overview of the available commands.
+
+## License
+
+This project is licensed under the MIT license ([LICENSE](LICENSE) or
+https://opensource.org/licenses/MIT).
