@@ -5,7 +5,12 @@
 
 name: Release
 
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+    inputs:
+      force_version:
+        description: 'Use this as a source for VERSION instead of github.ref_name'
+        type: string
 
 defaults:
   run:
@@ -29,6 +34,10 @@ jobs:
         run: echo "VERSION=$REF_NAME" >> "$GITHUB_ENV"
         env:
           REF_NAME: ${{ github.ref_name }}
+
+      - name: Get the release version from inputs.force_version
+        if: ${{ inputs.force_version }}
+        run: echo "VERSION=${{ inputs.force_version }}" >> "$GITHUB_ENV"
 
       - name: Validate version against Cargo.toml
         run: |
