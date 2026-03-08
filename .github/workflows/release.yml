@@ -123,8 +123,8 @@ jobs:
       - name: Build archive (Windows)
         if: matrix.os == 'windows-latest'
         run: |
-          file -- "$TARGET_DIR/$PROFILE"/{git-tree}.exe
-          cp -- "$TARGET_DIR/$PROFILE"/{git-tree}.exe "$ARCHIVE/"
+          file -- "$TARGET_DIR/$PROFILE"/git-tree.exe
+          cp -- "$TARGET_DIR/$PROFILE"/git-tree.exe "$ARCHIVE/"
           7z a "$ARCHIVE.zip" "$ARCHIVE"
           /usr/bin/core_perl/shasum --algorithm=256 --binary -- "$ARCHIVE.zip" > "$ARCHIVE.zip.sha256"
           echo "ASSET=$ARCHIVE.zip" >> "$GITHUB_ENV"
@@ -133,8 +133,8 @@ jobs:
       - name: Build archive (Unix)
         if: matrix.os != 'windows-latest'
         run: |
-          file -- "$TARGET_DIR/$PROFILE"/{git-tree}
-          cp -- "$TARGET_DIR/$PROFILE"/{git-tree} "$ARCHIVE/"
+          file -- "$TARGET_DIR/$PROFILE"/git-tree
+          cp -- "$TARGET_DIR/$PROFILE"/git-tree "$ARCHIVE/"
           tar czf "$ARCHIVE.tar.gz" -- "$ARCHIVE"
           shasum --algorithm=256 --binary -- "$ARCHIVE.tar.gz" > "$ARCHIVE.tar.gz.sha256"
           echo "ASSET=$ARCHIVE.tar.gz" >> "$GITHUB_ENV"
