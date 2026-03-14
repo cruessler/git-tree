@@ -31,3 +31,8 @@ mktest!(
     "some_staged_changes_depth",
     vec!["--depth", "1"]
 );
+mktest!(
+    additions_deletions_depth,
+    "additions_deletions_depth",
+    vec!["--depth", "1"]
+);

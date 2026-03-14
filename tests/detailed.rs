@@ -22,3 +22,4 @@ macro_rules! mktest {
 mktest!(no_changes, "no_changes");
 mktest!(some_changes, "some_changes");
 mktest!(some_staged_changes, "some_staged_changes");
+mktest!(additions_deletions, "additions_deletions");
