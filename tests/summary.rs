@@ -27,3 +27,8 @@ mktest!(
     "some_staged_changes",
     vec!["--summary"]
 );
+mktest!(
+    additions_deletions,
+    "additions_deletions",
+    vec!["--summary"]
+);

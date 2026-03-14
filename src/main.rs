@@ -212,12 +212,14 @@ impl Lines for Leaf {
         let modifier_index = match self.status {
             s if s.contains(git2::Status::INDEX_MODIFIED) => "M",
             s if s.contains(git2::Status::INDEX_NEW) => "N",
+            s if s.contains(git2::Status::INDEX_DELETED) => "D",
             _ => "-",
         };
 
         let modifier_worktree = match self.status {
             s if s.contains(git2::Status::WT_MODIFIED) => "M",
             s if s.contains(git2::Status::WT_NEW) => "N",
+            s if s.contains(git2::Status::WT_DELETED) => "D",
             _ => "-",
         };
 
