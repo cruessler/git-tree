@@ -29,3 +29,7 @@ seq 1 10 >> a/b/c/3.txt
 git add a/b/c/3.txt
 
 seq 1 10 >> a/b/c/4.txt
+
+seq 1 5 >> 5.txt
+git add 5.txt
+seq 6 8 >> 5.txt
