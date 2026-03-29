@@ -1,14 +1,14 @@
 use ansi_term::Colour::{Blue, Fixed, Green, Red, White, Yellow};
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use clap::Parser;
-use git2::{Branch, Repository};
-use gix::bstr::ByteSlice;
+use git2::Repository;
+use gix::bstr::{BStr, ByteSlice};
+use gix::ObjectId;
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
 use std::fmt;
 use std::fs::ReadDir;
 use std::path::{Component, Components, Path};
-use std::str;
 
 #[derive(Debug)]
 enum Node {
@@ -58,18 +58,19 @@ enum Status {
 impl From<gix::status::Item> for Status {
     fn from(item: gix::status::Item) -> Self {
         use gix::diff::index::ChangeRef;
+        use gix::status::index_worktree::iter::Summary;
 
         match item {
             gix::status::Item::IndexWorktree(item) => match item.summary() {
                 Some(summary) => match summary {
-                    gix::status::index_worktree::iter::Summary::Removed => Self::WorktreeRemoved,
-                    gix::status::index_worktree::iter::Summary::Added => Self::WorktreeAdded,
-                    gix::status::index_worktree::iter::Summary::Modified => Self::WorktreeModified,
-                    gix::status::index_worktree::iter::Summary::TypeChange => Self::TypeChange,
-                    gix::status::index_worktree::iter::Summary::Renamed => Self::Renamed,
-                    gix::status::index_worktree::iter::Summary::Copied => Self::Copied,
-                    gix::status::index_worktree::iter::Summary::IntentToAdd => Self::IntentToAdd,
-                    gix::status::index_worktree::iter::Summary::Conflict => Self::Conflict,
+                    Summary::Removed => Self::WorktreeRemoved,
+                    Summary::Added => Self::WorktreeAdded,
+                    Summary::Modified => Self::WorktreeModified,
+                    Summary::TypeChange => Self::TypeChange,
+                    Summary::Renamed => Self::Renamed,
+                    Summary::Copied => Self::Copied,
+                    Summary::IntentToAdd => Self::IntentToAdd,
+                    Summary::Conflict => Self::Conflict,
                 },
                 None => Self::Ignored,
             },
@@ -97,28 +98,168 @@ struct DiffStat {
     deletions: usize,
 }
 
-impl DiffStat {
-    fn from(repo: &Repository) -> Result<DiffStat> {
-        let head = repo.head()?;
-        let object_id = head
-            .target()
-            .ok_or(anyhow!("HEAD is not a direct reference"))?;
+fn calculate_stats(
+    hash_kind: gix::hash::Kind,
+    resource_cache: &mut gix::diff::blob::Platform,
+    objects: &impl gix::objs::FindObjectOrHeader,
+    previous_id: Option<ObjectId>,
+    id: Option<ObjectId>,
+    path: &BStr,
+    diff_stat: &mut DiffStat,
+) -> Result<()> {
+    resource_cache.set_resource(
+        previous_id.unwrap_or_else(|| ObjectId::null(hash_kind)),
+        gix::object::tree::EntryKind::Blob,
+        path,
+        gix::diff::blob::ResourceKind::OldOrSource,
+        objects,
+    )?;
+    resource_cache.set_resource(
+        id.unwrap_or_else(|| ObjectId::null(hash_kind)),
+        gix::object::tree::EntryKind::Blob,
+        path,
+        gix::diff::blob::ResourceKind::NewOrDestination,
+        objects,
+    )?;
 
-        let head_commit = repo.find_commit(object_id)?;
-        let head_tree = head_commit.tree()?;
+    let outcome = resource_cache.prepare_diff()?;
+    let input = gix::diff::blob::intern::InternedInput::new(
+        outcome.old.data.as_slice().unwrap_or_default(),
+        outcome.new.data.as_slice().unwrap_or_default(),
+    );
 
-        let diff = repo.diff_tree_to_workdir(Some(&head_tree), None)?;
-        let stats = diff.stats()?;
+    let counter = gix::diff::blob::diff(
+        gix::diff::blob::Algorithm::Histogram,
+        &input,
+        gix::diff::blob::sink::Counter::default(),
+    );
 
-        let branch = Branch::wrap(head);
-        let branch_name = str::from_utf8(branch.name_bytes()?)?;
+    diff_stat.files_changed += 1;
+    diff_stat.insertions += counter.insertions as usize;
+    diff_stat.deletions += counter.removals as usize;
 
-        let diff_stat = DiffStat {
-            branch: branch_name.into(),
-            files_changed: stats.files_changed(),
-            insertions: stats.insertions(),
-            deletions: stats.deletions(),
+    Ok(())
+}
+
+impl TryFrom<gix::Repository> for DiffStat {
+    type Error = anyhow::Error;
+
+    fn try_from(repo: gix::Repository) -> std::result::Result<Self, Self::Error> {
+        let branch: OsString = match repo.head_name()? {
+            Some(name) => name
+                .shorten()
+                .to_os_str()
+                .to_owned()
+                .context("HEAD is not a direct reference")?
+                .into(),
+            None => "detached HEAD".into(),
         };
+
+        let worktree_roots = gix::diff::blob::pipeline::WorktreeRoots {
+            old_root: None,
+            new_root: repo.workdir().map(ToOwned::to_owned),
+        };
+
+        let mut resource_cache = repo.diff_resource_cache(
+            gix::diff::blob::pipeline::Mode::ToGitUnlessBinaryToTextIsPresent,
+            worktree_roots,
+        )?;
+
+        let mut diff_stat = DiffStat {
+            branch,
+            files_changed: 0,
+            insertions: 0,
+            deletions: 0,
+        };
+
+        let status = repo
+            .status(gix::progress::Discard)?
+            .untracked_files(gix::status::UntrackedFiles::None);
+        let iter = status.into_iter(None)?;
+
+        for item in iter {
+            let item = item?;
+
+            // TODO:
+            // Check the implementation of `Diff::stats` to figure out what `git` does in each of
+            // the other cases. Add more tests in case some cases aren't covered yet.
+            match item {
+                gix::status::Item::IndexWorktree(item) => {
+                    // This yields changes that have not been staged yet.
+                    use gix::status::index_worktree::Item;
+
+                    match item {
+                        Item::Modification {
+                            entry, rela_path, ..
+                        } => {
+                            calculate_stats(
+                                repo.object_hash(),
+                                &mut resource_cache,
+                                &repo.objects,
+                                Some(entry.id),
+                                None,
+                                rela_path.as_ref(),
+                                &mut diff_stat,
+                            )?;
+                        }
+                        Item::DirectoryContents { .. } => {
+                            // TODO:
+                            // Double-check that this is what `git2` does.
+                            // Do nothing.
+                        }
+                        Item::Rewrite { .. } => {
+                            // TODO:
+                            // Double-check that this is what `git2` does.
+                            // Do nothing.
+                        }
+                    };
+                }
+                gix::status::Item::TreeIndex(change_ref) => {
+                    // This yields changes that have already been staged.
+                    use gix::diff::index::ChangeRef;
+
+                    match change_ref {
+                        ChangeRef::Addition { .. } => {
+                            // TODO:
+                            // Double-check that this is what `git2` does.
+                            // Do nothing.
+                        }
+                        ChangeRef::Deletion { location, id, .. } => {
+                            calculate_stats(
+                                repo.object_hash(),
+                                &mut resource_cache,
+                                &repo.objects,
+                                Some(id.into_owned()),
+                                None,
+                                &location,
+                                &mut diff_stat,
+                            )?;
+                        }
+                        ChangeRef::Modification {
+                            location,
+                            previous_id,
+                            id,
+                            ..
+                        } => {
+                            calculate_stats(
+                                repo.object_hash(),
+                                &mut resource_cache,
+                                &repo.objects,
+                                Some(previous_id.into_owned()),
+                                Some(id.into_owned()),
+                                &location,
+                                &mut diff_stat,
+                            )?;
+                        }
+                        ChangeRef::Rewrite { .. } => {
+                            // TODO:
+                            // Double-check that this is what `git2` does.
+                            // Do nothing.
+                        }
+                    };
+                }
+            };
+        }
 
         Ok(diff_stat)
     }
@@ -218,7 +359,7 @@ impl Lines for Tree {
         lines.extend(
             rest.iter()
                 .flat_map(|&node| {
-                    // Every child’s first line gets prepended by "├── ".
+                    // Every child's first line gets prepended by "├── ".
                     // All following lines get prepended by "│   ".
                     self.prepend_first_and_rest(node.lines(), "├── ".into(), "│   ".into())
                 })
@@ -226,7 +367,7 @@ impl Lines for Tree {
         );
 
         if let Some(&last) = last.first() {
-            // The last child’s first line gets prepended by "└── ".
+            // The last child's first line gets prepended by "└── ".
             // All following lines get prepended by "    ".
             lines.extend(self.prepend_first_and_rest(last.lines(), "└── ".into(), "    ".into()));
         }
@@ -351,7 +492,11 @@ fn file_name(path: &Path) -> &OsStr {
 }
 
 fn walk_summary(repo: &Repository, name: &OsStr, args: &Args) -> Result<Option<Node>> {
-    let stats = DiffStat::from(repo)?;
+    let repo = gix::open(
+        repo.workdir()
+            .ok_or(anyhow!("`Repository::workdir()` returned `None`"))?,
+    )?;
+    let stats: DiffStat = repo.try_into()?;
 
     if args.only_show_changes && stats.insertions == 0 && stats.deletions == 0 {
         return Ok(None);
@@ -436,12 +581,12 @@ fn fallback(path: &Path, args: &Args) -> Result<Option<Node>> {
 /// tree + git status: displays git status info in a tree
 ///
 /// git-tree searches for a git repository the same way git does, and displays
-/// a tree showing untracked and modified files. The tree’s root is the
-/// repository’s root. The tree’s items are colored to indicate their status
+/// a tree showing untracked and modified files. The tree's root is the
+/// repository's root. The tree's items are colored to indicate their status
 /// (green: new, red: modified, blue: ignored). Changes to files in the index
 /// are shown in bold.
 ///
-/// A column in front of each file’s name indicates changes to the index and
+/// A column in front of each file's name indicates changes to the index and
 /// the working tree, respectively (M: modified, N: new).
 #[command(author, version, about)]
 struct Args {
