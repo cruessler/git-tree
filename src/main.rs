@@ -58,18 +58,19 @@ enum Status {
 impl From<gix::status::Item> for Status {
     fn from(item: gix::status::Item) -> Self {
         use gix::diff::index::ChangeRef;
+        use gix::status::index_worktree::iter::Summary;
 
         match item {
             gix::status::Item::IndexWorktree(item) => match item.summary() {
                 Some(summary) => match summary {
-                    gix::status::index_worktree::iter::Summary::Removed => Self::WorktreeRemoved,
-                    gix::status::index_worktree::iter::Summary::Added => Self::WorktreeAdded,
-                    gix::status::index_worktree::iter::Summary::Modified => Self::WorktreeModified,
-                    gix::status::index_worktree::iter::Summary::TypeChange => Self::TypeChange,
-                    gix::status::index_worktree::iter::Summary::Renamed => Self::Renamed,
-                    gix::status::index_worktree::iter::Summary::Copied => Self::Copied,
-                    gix::status::index_worktree::iter::Summary::IntentToAdd => Self::IntentToAdd,
-                    gix::status::index_worktree::iter::Summary::Conflict => Self::Conflict,
+                    Summary::Removed => Self::WorktreeRemoved,
+                    Summary::Added => Self::WorktreeAdded,
+                    Summary::Modified => Self::WorktreeModified,
+                    Summary::TypeChange => Self::TypeChange,
+                    Summary::Renamed => Self::Renamed,
+                    Summary::Copied => Self::Copied,
+                    Summary::IntentToAdd => Self::IntentToAdd,
+                    Summary::Conflict => Self::Conflict,
                 },
                 None => Self::Ignored,
             },
