@@ -16,4 +16,4 @@ gix = { version = "0.78.0", default-features = false, features = [ "max-performa
 
 [dev-dependencies]
 gix-testtools = "0.18.0"
-snapbox = { version = "1.1.0", features = ["cmd", "term-svg"] }
+snapbox = { version = "1.2.0", features = ["cmd", "term-svg"] }
