@@ -11,10 +11,10 @@ git init -q first
   git add 2.txt
   git commit -q -m c2
 
-  seq 1 10 >> 1.txt
+  seq 3 6 >> 1.txt
   git add 1.txt
 
-  seq 1 10 >> 2.txt
+  seq 3 5 >> 2.txt
 )
 
 git init -q second
@@ -27,8 +27,8 @@ git init -q second
   git add 2.txt
   git commit -q -m c2
 
-  seq 1 10 >> 1.txt
+  seq 3 6 >> 1.txt
   git add 1.txt
 
-  seq 1 10 >> 2.txt
+  seq 3 5 >> 2.txt
 )

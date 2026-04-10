@@ -16,6 +16,6 @@ seq 1 10 >> a/b/c/3.txt
 git add a/b/c/3.txt
 git commit -q -m c3
 
-seq 1 10 >> 1.txt
-seq 1 10 >> 2.txt
-seq 1 10 >> a/b/c/3.txt
+seq 3 5 >> 1.txt
+seq 3 6 >> 2.txt
+seq 3 7 >> a/b/c/3.txt
