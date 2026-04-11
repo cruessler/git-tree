@@ -1,9 +1,8 @@
 use ansi_term::Colour::{Blue, Fixed, Green, Red, White, Yellow};
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use clap::Parser;
-use git2::Repository;
 use gix::bstr::{BStr, ByteSlice};
-use gix::ObjectId;
+use gix::{ObjectId, Repository};
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
 use std::fmt;
@@ -150,10 +149,10 @@ fn calculate_stats(
     Ok(())
 }
 
-impl TryFrom<gix::Repository> for DiffStat {
+impl TryFrom<&gix::Repository> for DiffStat {
     type Error = anyhow::Error;
 
-    fn try_from(repo: gix::Repository) -> std::result::Result<Self, Self::Error> {
+    fn try_from(repo: &gix::Repository) -> std::result::Result<Self, Self::Error> {
         let branch: OsString = match repo.head_name()? {
             Some(name) => name
                 .shorten()
@@ -192,7 +191,7 @@ impl TryFrom<gix::Repository> for DiffStat {
                             entry, rela_path, ..
                         } => {
                             calculate_stats(
-                                &repo,
+                                repo,
                                 None,
                                 Some(entry.id),
                                 repo.workdir().map(ToOwned::to_owned),
@@ -220,7 +219,7 @@ impl TryFrom<gix::Repository> for DiffStat {
                     match change_ref {
                         ChangeRef::Addition { location, id, .. } => {
                             calculate_stats(
-                                &repo,
+                                repo,
                                 None,
                                 None,
                                 None,
@@ -231,7 +230,7 @@ impl TryFrom<gix::Repository> for DiffStat {
                         }
                         ChangeRef::Deletion { location, id, .. } => {
                             calculate_stats(
-                                &repo,
+                                repo,
                                 None,
                                 Some(id.into_owned()),
                                 None,
@@ -247,7 +246,7 @@ impl TryFrom<gix::Repository> for DiffStat {
                             ..
                         } => {
                             calculate_stats(
-                                &repo,
+                                repo,
                                 None,
                                 Some(previous_id.into_owned()),
                                 None,
@@ -457,10 +456,6 @@ fn walk_repository(repo: &Repository, name: &OsStr, args: &Args) -> Result<Optio
 }
 
 fn walk_entries(repo: &Repository, name: &OsStr, args: &Args) -> Result<Option<Node>> {
-    let repo = gix::open(
-        repo.workdir()
-            .ok_or(anyhow!("`Repository::workdir()` returned `None`"))?,
-    )?;
     let status = repo.status(gix::progress::Discard)?;
 
     let mut root = Tree {
@@ -497,10 +492,6 @@ fn file_name(path: &Path) -> &OsStr {
 }
 
 fn walk_summary(repo: &Repository, name: &OsStr, args: &Args) -> Result<Option<Node>> {
-    let repo = gix::open(
-        repo.workdir()
-            .ok_or(anyhow!("`Repository::workdir()` returned `None`"))?,
-    )?;
     let stats: DiffStat = repo.try_into()?;
 
     if args.only_show_changes && stats.insertions == 0 && stats.deletions == 0 {
@@ -541,7 +532,7 @@ fn walk_directory(path: &Path, iter: ReadDir, depth: usize, args: &Args) -> Resu
 
 fn walk_path(path: &Path, depth: usize, args: &Args) -> Result<Option<Node>> {
     if path.is_dir() {
-        match Repository::open(path) {
+        match gix::open(path) {
             Ok(repo) => {
                 let node = walk_repository(&repo, file_name(path), args)?;
 
@@ -564,20 +555,13 @@ fn walk_path(path: &Path, depth: usize, args: &Args) -> Result<Option<Node>> {
 }
 
 fn fallback(path: &Path, args: &Args) -> Result<Option<Node>> {
-    let repo = match Repository::discover(path) {
-        Err(ref error)
-            if (error.class() == git2::ErrorClass::Repository
-                && error.code() == git2::ErrorCode::NotFound) =>
-        {
-            return Err(anyhow!(
-                "no git repository found at {:?}, you might want to try \
-                 running git-tree with `--depth`, see `git-tree --help` for \
-                 details",
-                path
-            ));
-        }
-        otherwise => otherwise?,
-    };
+    let repo = gix::discover(path).with_context(|| {
+        format!(
+            "no git repository found at {:?}, you might want to try running git-tree with \
+         `--depth`, see `git-tree --help` for details",
+            path
+        )
+    })?;
 
     walk_repository(&repo, file_name(path), args)
 }
