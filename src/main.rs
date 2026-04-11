@@ -5,7 +5,6 @@ use gix::bstr::{BStr, ByteSlice};
 use gix::{ObjectId, Repository};
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
-use std::fmt;
 use std::fs::ReadDir;
 use std::path::{Component, Components, Path, PathBuf};
 
@@ -304,85 +303,29 @@ impl Tree {
     }
 }
 
-trait Lines {
-    fn lines(&self) -> Vec<OsString>;
-
-    fn prepend(&self, lines: Vec<OsString>, with: OsString) -> Vec<OsString> {
-        lines
-            .into_iter()
-            .map(|line| {
-                let mut new_line = with.clone();
-                new_line.push(&line);
-                new_line
-            })
-            .collect()
-    }
-
-    fn prepend_first_and_rest(
-        &self,
-        mut lines: Vec<OsString>,
-        first_with: OsString,
-        rest_with: OsString,
-    ) -> Vec<OsString> {
-        let (first, rest) = lines.split_at_mut(1);
-
-        let mut first_line = first_with.clone();
-        first_line.push(&first[0]);
-
-        let mut lines = vec![first_line];
-
-        lines.extend(self.prepend(rest.into(), rest_with));
-
-        lines
-    }
-}
-
-impl Lines for Node {
-    fn lines(&self) -> Vec<OsString> {
+impl Node {
+    fn to_tree(&self) -> termtree::Tree<String> {
         match self {
-            Node::Tree(node) => node.lines(),
-            Node::Summary(node) => node.lines(),
-            Node::Leaf(node) => node.lines(),
+            Node::Tree(tree) => tree.to_tree(),
+            Node::Summary(summary) => summary.to_tree(),
+            Node::Leaf(leaf) => leaf.to_tree(),
         }
     }
 }
 
-impl Lines for Tree {
-    fn lines(&self) -> Vec<OsString> {
-        let children = self.children.values().collect::<Vec<_>>();
+impl Tree {
+    fn to_tree(&self) -> termtree::Tree<String> {
+        let mut tree = termtree::Tree::new(self.name.to_string_lossy().into_owned());
 
-        let split_at = match children.len() {
-            0 => 0,
-            len => len - 1,
-        };
+        tree.extend(self.children.values().map(|child| child.to_tree()));
 
-        let (rest, last) = children.as_slice().split_at(split_at);
-
-        let mut lines = vec![self.name.clone()];
-
-        lines.extend(
-            rest.iter()
-                .flat_map(|&node| {
-                    // Every child's first line gets prepended by "├── ".
-                    // All following lines get prepended by "│   ".
-                    self.prepend_first_and_rest(node.lines(), "├── ".into(), "│   ".into())
-                })
-                .collect::<Vec<_>>(),
-        );
-
-        if let Some(&last) = last.first() {
-            // The last child's first line gets prepended by "└── ".
-            // All following lines get prepended by "    ".
-            lines.extend(self.prepend_first_and_rest(last.lines(), "└── ".into(), "    ".into()));
-        }
-
-        lines
+        tree
     }
 }
 
-impl Lines for Summary {
-    fn lines(&self) -> Vec<OsString> {
-        vec![format!(
+impl Summary {
+    fn to_tree(&self) -> termtree::Tree<String> {
+        termtree::Tree::new(format!(
             "{} {} +{} -{} ({})",
             self.name.as_os_str().to_string_lossy(),
             Fixed(244).paint(format!(
@@ -392,14 +335,13 @@ impl Lines for Summary {
             Green.paint(format!("{}", self.stats.insertions)),
             Red.paint(format!("{}", self.stats.deletions)),
             Yellow.paint(format!("{}", self.stats.files_changed)),
-        )
-        .into()]
+        ))
     }
 }
 
 // http://www.calmar.ws/vim/256-xterm-24bit-rgb-color-chart.html
-impl Lines for Leaf {
-    fn lines(&self) -> Vec<OsString> {
+impl Leaf {
+    fn to_tree(&self) -> termtree::Tree<String> {
         let style = match self.status {
             Status::WorktreeModified => Red.normal(),
             Status::IndexModified => Red.bold(),
@@ -427,23 +369,12 @@ impl Lines for Leaf {
 
         let gray = Fixed(244).normal();
 
-        vec![format!(
+        termtree::Tree::new(format!(
             "{}{} {}",
             gray.paint(modifier_index),
             gray.paint(modifier_worktree),
             style.paint(format!("{}", self.name.as_os_str().to_string_lossy()))
-        )
-        .into()]
-    }
-}
-
-impl fmt::Display for Node {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for l in self.lines() {
-            writeln!(f, "{}", l.as_os_str().to_string_lossy())?;
-        }
-
-        Ok(())
+        ))
     }
 }
 
@@ -609,7 +540,7 @@ fn run() -> Result<()> {
     };
 
     match node {
-        Some(root) => println!("{}", root),
+        Some(root) => println!("{}", root.to_tree()),
         _ => println!("no git repository found at {:?}", path),
     }
 
