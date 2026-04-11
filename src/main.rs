@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
 use std::fmt;
 use std::fs::ReadDir;
-use std::path::{Component, Components, Path};
+use std::path::{Component, Components, Path, PathBuf};
 
 #[derive(Debug)]
 enum Node {
@@ -90,6 +90,8 @@ struct Leaf {
     status: Status,
 }
 
+// TODO:
+// `DiffStat` should differentiate between staged and unstaged changes.
 #[derive(Debug)]
 struct DiffStat {
     branch: OsString,
@@ -99,27 +101,34 @@ struct DiffStat {
 }
 
 fn calculate_stats(
-    hash_kind: gix::hash::Kind,
-    resource_cache: &mut gix::diff::blob::Platform,
-    objects: &impl gix::objs::FindObjectOrHeader,
-    previous_id: Option<ObjectId>,
-    id: Option<ObjectId>,
+    repo: &gix::Repository,
+    old_root: Option<PathBuf>,
+    old_id: Option<ObjectId>,
+    new_root: Option<PathBuf>,
+    new_id: Option<ObjectId>,
     path: &BStr,
     diff_stat: &mut DiffStat,
 ) -> Result<()> {
+    let worktree_roots = gix::diff::blob::pipeline::WorktreeRoots { old_root, new_root };
+
+    let mut resource_cache = repo.diff_resource_cache(
+        gix::diff::blob::pipeline::Mode::ToGitUnlessBinaryToTextIsPresent,
+        worktree_roots,
+    )?;
+
     resource_cache.set_resource(
-        previous_id.unwrap_or_else(|| ObjectId::null(hash_kind)),
+        old_id.unwrap_or_else(|| ObjectId::null(repo.object_hash())),
         gix::object::tree::EntryKind::Blob,
         path,
         gix::diff::blob::ResourceKind::OldOrSource,
-        objects,
+        &repo.objects,
     )?;
     resource_cache.set_resource(
-        id.unwrap_or_else(|| ObjectId::null(hash_kind)),
+        new_id.unwrap_or_else(|| ObjectId::null(repo.object_hash())),
         gix::object::tree::EntryKind::Blob,
         path,
         gix::diff::blob::ResourceKind::NewOrDestination,
-        objects,
+        &repo.objects,
     )?;
 
     let outcome = resource_cache.prepare_diff()?;
@@ -155,16 +164,6 @@ impl TryFrom<gix::Repository> for DiffStat {
             None => "detached HEAD".into(),
         };
 
-        let worktree_roots = gix::diff::blob::pipeline::WorktreeRoots {
-            old_root: None,
-            new_root: repo.workdir().map(ToOwned::to_owned),
-        };
-
-        let mut resource_cache = repo.diff_resource_cache(
-            gix::diff::blob::pipeline::Mode::ToGitUnlessBinaryToTextIsPresent,
-            worktree_roots,
-        )?;
-
         let mut diff_stat = DiffStat {
             branch,
             files_changed: 0,
@@ -193,10 +192,10 @@ impl TryFrom<gix::Repository> for DiffStat {
                             entry, rela_path, ..
                         } => {
                             calculate_stats(
-                                repo.object_hash(),
-                                &mut resource_cache,
-                                &repo.objects,
+                                &repo,
+                                None,
                                 Some(entry.id),
+                                repo.workdir().map(ToOwned::to_owned),
                                 None,
                                 rela_path.as_ref(),
                                 &mut diff_stat,
@@ -219,17 +218,23 @@ impl TryFrom<gix::Repository> for DiffStat {
                     use gix::diff::index::ChangeRef;
 
                     match change_ref {
-                        ChangeRef::Addition { .. } => {
-                            // TODO:
-                            // Double-check that this is what `git2` does.
-                            // Do nothing.
+                        ChangeRef::Addition { location, id, .. } => {
+                            calculate_stats(
+                                &repo,
+                                None,
+                                None,
+                                None,
+                                Some(id.into_owned()),
+                                &location,
+                                &mut diff_stat,
+                            )?;
                         }
                         ChangeRef::Deletion { location, id, .. } => {
                             calculate_stats(
-                                repo.object_hash(),
-                                &mut resource_cache,
-                                &repo.objects,
+                                &repo,
+                                None,
                                 Some(id.into_owned()),
+                                None,
                                 None,
                                 &location,
                                 &mut diff_stat,
@@ -242,10 +247,10 @@ impl TryFrom<gix::Repository> for DiffStat {
                             ..
                         } => {
                             calculate_stats(
-                                repo.object_hash(),
-                                &mut resource_cache,
-                                &repo.objects,
+                                &repo,
+                                None,
                                 Some(previous_id.into_owned()),
+                                None,
                                 Some(id.into_owned()),
                                 &location,
                                 &mut diff_stat,
