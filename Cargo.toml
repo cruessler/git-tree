@@ -14,4 +14,4 @@ termtree = "1.0.0"
 
 [dev-dependencies]
 gix-testtools = "0.18.0"
-snapbox = { version = "1.2.0", features = ["cmd", "term-svg"] }
+snapbox = { version = "1.2.1", features = ["cmd", "term-svg"] }
