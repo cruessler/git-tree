@@ -8,7 +8,7 @@ description = "tree + git status: displays git status info in a tree"
 [dependencies]
 ansi_term = "0.12.1"
 anyhow = "1.0.102"
-clap = { version = "4.6.0", features = [ "derive", "wrap_help" ] }
+clap = { version = "4.6.1", features = [ "derive", "wrap_help" ] }
 gix = { version = "0.81.0", default-features = false, features = [ "max-performance", "sha1", "status" ] }
 termtree = "1.0.0"
 
