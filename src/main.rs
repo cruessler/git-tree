@@ -130,20 +130,16 @@ fn calculate_stats(
     )?;
 
     let outcome = resource_cache.prepare_diff()?;
-    let input = gix::diff::blob::intern::InternedInput::new(
+    let input = gix::diff::blob::InternedInput::new(
         outcome.old.data.as_slice().unwrap_or_default(),
         outcome.new.data.as_slice().unwrap_or_default(),
     );
 
-    let counter = gix::diff::blob::diff(
-        gix::diff::blob::Algorithm::Histogram,
-        &input,
-        gix::diff::blob::sink::Counter::default(),
-    );
+    let diff = gix::diff::blob::Diff::compute(gix::diff::blob::Algorithm::Histogram, &input);
 
     diff_stat.files_changed += 1;
-    diff_stat.insertions += counter.insertions as usize;
-    diff_stat.deletions += counter.removals as usize;
+    diff_stat.insertions += diff.count_additions() as usize;
+    diff_stat.deletions += diff.count_removals() as usize;
 
     Ok(())
 }
