@@ -115,14 +115,14 @@ fn calculate_stats(
     )?;
 
     resource_cache.set_resource(
-        old_id.unwrap_or_else(|| ObjectId::null(repo.object_hash())),
+        old_id.unwrap_or_else(|| repo.object_hash().null()),
         gix::object::tree::EntryKind::Blob,
         path,
         gix::diff::blob::ResourceKind::OldOrSource,
         &repo.objects,
     )?;
     resource_cache.set_resource(
-        new_id.unwrap_or_else(|| ObjectId::null(repo.object_hash())),
+        new_id.unwrap_or_else(|| repo.object_hash().null()),
         gix::object::tree::EntryKind::Blob,
         path,
         gix::diff::blob::ResourceKind::NewOrDestination,
