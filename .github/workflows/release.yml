@@ -61,7 +61,7 @@ jobs:
           esac
 
       - name: Create GitHub release
-        run: gh release create "$VERSION" --title="$VERSION" --draft
+        run: gh release create "$VERSION" --title="$VERSION" --generate-notes --draft
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
