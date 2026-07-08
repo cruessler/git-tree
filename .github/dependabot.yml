@@ -4,8 +4,7 @@ updates:
     directory: "/"
 
     schedule:
-      interval: weekly
-      day: monday
+      interval: monthly
 
     assignees:
       - "cruessler"
